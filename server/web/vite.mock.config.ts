@@ -13,10 +13,33 @@ const N = 24
 const now = Date.now()
 const rnd = (seed) => { let x = Math.sin(seed) * 10000; return x - Math.floor(x) }
 
-const mkNode = (i) => ({
+/**
+ * 节点地区数据源。
+ *
+ * 关键：名称、国家、城市、经纬度必须放在同一条记录里。
+ * 之前拆成三个独立数组分别取模，长度还不一样
+ * （名称 8 个、地区 7 个），结果"新加坡 01"配上了美国国旗。
+ * 这种错位在页面上看起来只是数据不对，但会让所有依赖地区的逻辑失效。
+ */
+const REGION_DATA = [
+  { cc: 'HK', city: '香港',     lat: 22.3193, lon: 114.1694, label: '香港' },
+  { cc: 'JP', city: '东京',     lat: 35.6762, lon: 139.6503, label: '日本东京' },
+  { cc: 'SG', city: '新加坡',   lat: 1.3521,  lon: 103.8198, label: '新加坡' },
+  { cc: 'US', city: '洛杉矶',   lat: 34.0522, lon: -118.2437, label: '美国洛杉矶' },
+  { cc: 'DE', city: '法兰克福', lat: 50.1109, lon: 8.6821,  label: '德国法兰克福' },
+  { cc: 'KR', city: '首尔',     lat: 37.5665, lon: 126.9780, label: '韩国首尔' },
+  { cc: 'TW', city: '台北',     lat: 25.0330, lon: 121.5654, label: '台湾台北' },
+  { cc: 'HK', city: '九龙',     lat: 22.3080, lon: 114.1800, label: '香港' },
+  { cc: 'JP', city: '大阪',     lat: 34.6937, lon: 135.5023, label: '日本大阪' },
+  { cc: 'US', city: '纽约',     lat: 40.7128, lon: -74.0060, label: '美国纽约' },
+]
+
+const mkNode = (i) => {
+  const r = REGION_DATA[i % REGION_DATA.length]!
+  const round = Math.floor(i / REGION_DATA.length) + 1
+  return {
   id: i + 1, uid: `node-${i + 1}`,
-  name: ['香港节点 01', '香港节点 02', '日本东京 01', '新加坡 01', '美国洛杉矶 01',
-         '德国法兰克福 01', '韩国首尔 01', '台湾台北 01'][i % 8] + (i > 7 ? ` (${Math.floor(i/8)+1})` : ''),
+  name: round > 1 ? `${r.label} (${round})` : r.label,
   status: i % 7 === 3 ? 'offline' : i % 11 === 5 ? 'pending' : 'online',
   is_public: i % 3 === 0,
   cpu_cores: [2,4,8,16][i%4], mem_total: [2,4,8,16,32][i%5] * 1024**3,
@@ -24,14 +47,15 @@ const mkNode = (i) => ({
   os_type: 'linux', os_version: 'Ubuntu 22.04.3 LTS', arch: 'x86_64',
   agent_version: '1.0.0', hostname: `web-${String(i+1).padStart(2,'0')}`,
   public_ip: `203.0.${113 + Math.floor(i/250)}.${10+i}`,
-  geo_country: ['HK','JP','SG','US','DE','KR','TW'][i%7],
-  geo_city: ['香港','东京','新加坡','洛杉矶','法兰克福','首尔','台北'][i%7],
-  // 经纬度用各城市真实坐标，地图打点才准
-  geo_lat: [22.32, 35.68, 1.35, 34.05, 50.11, 37.57, 25.03][i%7],
-  geo_lon: [114.17, 139.65, 103.82, -118.24, 8.68, 126.98, 121.57][i%7],
+  // 地区三件套来自同一条记录，不会错位
+  geo_country: r.cc,
+  geo_city: r.city,
+  geo_lat: r.lat,
+  geo_lon: r.lon,
   last_seen_at: new Date(now - rnd(i)*3600000).toISOString(),
   disk_info: [{ mount:'/', fstype:'ext4', total: 80*1024**3 }, { mount:'/data', fstype:'xfs', total: 320*1024**3 }],
-})
+  }
+}
 
 const mkSnapshot = (i) => ({
   collected_at: new Date().toISOString(),

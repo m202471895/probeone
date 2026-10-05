@@ -125,7 +125,10 @@ onBeforeUnmount(() => {
           <tr v-for="node in sorted" :key="node.id" class="row">
             <td class="col-name">
               <RouterLink :to="`/nodes/${node.uid}`" class="node-link">
-                <span class="node-title">{{ node.name }}</span>
+                <span class="node-title">
+                  <CountryFlag :code="node.geo_country" :size="14" />
+                  <span class="truncate">{{ node.name }}</span>
+                </span>
                 <span class="node-sub truncate">
                   {{ node.public_ip || node.hostname || node.os_type || '—' }}
                 </span>
