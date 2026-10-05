@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="description" content="ProbeOne — 自托管探针系统，服务器与网站监控" />
+    <title>ProbeOne</title>
+    <style>
+      /* 首屏加载态：内联样式避免等CSS 造成白闪 */
+      #app-boot {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #f7f8fa;
+        transition: opacity 200ms ease-out;
+      }
+      #app-boot svg {
+        color: #3e63dd;
+        animation: boot-pulse 1.4s ease-in-out infinite;
+      }
+      @keyframes boot-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.35; }
+      }
+      @media (prefers-color-scheme: dark) {
+        #app-boot { background: #0f1216; }
+        #app-boot svg { color: #8da4f0; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="app-boot">
+      <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 12h4l3-7 4 14 3-7h4" />
+      </svg>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

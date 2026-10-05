@@ -1,0 +1,158 @@
+/*
+ * ProbeOne 设计令牌
+ *
+ * 硬性要求（PRD 11章）：
+ *  - 扁平化：无渐变、无阴影堆叠、无拟物纹理、无 3D
+ *  - 线条流畅：动效 150–250ms ease-out，不用弹跳
+ *  - 大气：留白充分，一屏内核心信息不超过 3 个视觉层级
+ *  - 自适应：5 个断点
+ *
+ * 行情色遵循中国市场惯例：涨=红，跌=绿。
+ * 这与欧美惯例相反，是刻意的——用户看的是国内资产。
+ */
+
+:root {
+  /* ============ 间距：4px 栅格 ============ */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* ============ 圆角：小圆角是扁平化的关键 ============ */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-full: 999px;
+
+  /* ============ 字号 ============ */
+  --font-xs: 12px;
+  --font-sm: 13px;
+  --font-base: 14px;
+  --font-md: 16px;
+  --font-lg: 20px;
+  --font-xl: 26px;
+  --font-2xl: 34px;
+
+  /* ============ 动效 ============ */
+  --ease-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-fast: 150ms;
+  --duration-base: 200ms;
+  --duration-slow: 250ms;
+
+  /* ============ 布局 ============ */
+  --sidebar-width: 220px;
+  --sidebar-collapsed: 64px;
+  --header-height: 56px;
+  --content-max: 1600px;
+  --tabbar-height: 56px;
+}
+
+/* ============ 浅色主题（默认） ============ */
+:root,
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  /* 背景层次：靠明度差而非阴影 */
+  --bg-body: #f7f8fa;
+  --bg-surface: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-hover: #f2f4f7;
+  --bg-active: #eaeef3;
+  --bg-subtle: #fafbfc;
+
+  --line-color: rgba(15, 23, 42, 0.09);
+  --line-strong: rgba(15, 23, 42, 0.16);
+
+  --text-primary: #1a2233;
+  --text-secondary: #5a6478;
+  --text-tertiary: #8b93a5;
+  --text-inverse: #ffffff;
+
+  /* 主色：中性灰蓝，大面积背景不用 */
+  --accent: #3e63dd;
+  --accent-hover: #3457c8;
+  --accent-subtle: rgba(62, 99, 221, 0.08);
+  --accent-border: rgba(62, 99, 221, 0.24);
+
+  /* 语义色：涨=红 跌=绿（中国惯例） */
+  --up: #e5484d;
+  --up-subtle: rgba(229, 72, 77, 0.1);
+  --down: #12a150;
+  --down-subtle: rgba(18, 161, 80, 0.1);
+  --warning: #f5a524;
+  --warning-subtle: rgba(245, 165, 36, 0.12);
+  --critical: #d13438;
+  --critical-subtle: rgba(209, 52, 56, 0.1);
+  --neutral: #8b8d98;
+  --neutral-subtle: rgba(139, 141, 152, 0.1);
+  --info: #3e63dd;
+  --info-subtle: rgba(62, 99, 221, 0.08);
+}
+
+/* ============ 深色主题 ============ */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg-body: #0f1216;
+  --bg-surface: #171b21;
+  --bg-elevated: #1d222a;
+  --bg-hover: #222833;
+  --bg-active: #2a313d;
+  --bg-subtle: #13171c;
+
+  --line-color: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.18);
+
+  --text-primary: #e8eaed;
+  --text-secondary: #a3aab8;
+  --text-tertiary: #6b7280;
+  --text-inverse: #0f1216;
+
+  --accent: #8da4f0;
+  --accent-hover: #a3b5f5;
+  --accent-subtle: rgba(141, 164, 240, 0.12);
+  --accent-border: rgba(141, 164, 240, 0.3);
+
+  --up: #ff6369;
+  --up-subtle: rgba(255, 99, 105, 0.14);
+  --down: #30a46c;
+  --down-subtle: rgba(48, 164, 108, 0.14);
+  --warning: #ffb224;
+  --warning-subtle: rgba(255, 178, 36, 0.16);
+  --critical: #e5484d;
+  --critical-subtle: rgba(229, 72, 77, 0.14);
+  --neutral: #6b7280;
+  --neutral-subtle: rgba(107, 114, 128, 0.14);
+  --info: #8da4f0;
+  --info-subtle: rgba(141, 164, 240, 0.12);
+}
+
+/* ============ 图表色板 ============
+ * 固定顺序，保证多系列图的图例颜色在各页一致。
+ * 用户看惯了图例 A 是蓝色，就不该在另一页看到 A 是红色。
+ */
+:root {
+  --chart-1: #3e63dd;
+  --chart-2: #12a150;
+  --chart-3: #f5a524;
+  --chart-4: #d13438;
+  --chart-5: #8b5cf6;
+  --chart-6: #0891b2;
+  --chart-7: #db2777;
+  --chart-8: #65a30d;
+}
+
+:root[data-theme='dark'] {
+  --chart-1: #8da4f0;
+  --chart-2: #30a46c;
+  --chart-3: #ffb224;
+  --chart-4: #ff6369;
+  --chart-5: #a78bfa;
+  --chart-6: #22b8cf;
+  --chart-7: #f472b6;
+  --chart-8: #84cc16;
+}

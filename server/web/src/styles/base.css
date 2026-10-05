@@ -1,0 +1,170 @@
+/*
+ * 全局基础样式
+ * 只做三件事：重置、排版、通用原子类。
+ * 组件样式一律 scoped 写在各自 .vue 里，避免这里变成垃圾场。
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+  font-size: var(--font-base);
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* 主题切换时的过渡，但只在切换瞬间生效 */
+  transition:
+    background-color var(--duration-base) var(--ease-out),
+    color var(--duration-base) var(--ease-out);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+h1 { font-size: var(--font-xl); }
+h2 { font-size: var(--font-lg); }
+h3 { font-size: var(--font-md); }
+h4 { font-size: var(--font-base); }
+
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+  transition: color var(--duration-fast) var(--ease-out);
+}
+
+a:hover {
+  color: var(--accent-hover);
+}
+
+/* ============ 焦点可见性 ============ */
+/* 键盘导航必须看得见焦点，但鼠标点击不显示焦点环 */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ============ 滚动条 ============ */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+/* ============ 排版原子类 ============ */
+.text-xs { font-size: var(--font-xs); }
+.text-sm { font-size: var(--font-sm); }
+.text-base { font-size: var(--font-base); }
+.text-md { font-size: var(--font-md); }
+.text-lg { font-size: var(--font-lg); }
+
+.text-secondary { color: var(--text-secondary); }
+.text-tertiary { color: var(--text-tertiary); }
+.text-accent { color: var(--accent); }
+.text-up { color: var(--up); }
+.text-down { color: var(--down); }
+.text-warning { color: var(--warning); }
+.text-critical { color: var(--critical); }
+
+.font-mono {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.font-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ============ 布局原子类 ============ */
+.flex { display: flex; }
+.flex-col { display: flex; flex-direction: column; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.gap-1 { gap: var(--space-1); }
+.gap-2 { gap: var(--space-2); }
+.gap-3 { gap: var(--space-3); }
+.gap-4 { gap: var(--space-4); }
+.gap-5 { gap: var(--space-5); }
+.gap-6 { gap: var(--space-6); }
+
+.w-full { width: 100%; }
+.h-full { height: 100%; }
+.min-w-0 { min-width: 0; }
+
+/* ============ 动效 ============ */
+/* 统一缓动，杜绝各处写法不一 */
+.transition {
+  transition: all var(--duration-base) var(--ease-out);
+}
+
+/* 只给 transform/opacity 加过渡——这两项不会触发重排，
+   全局transition: all 会在高频数据更新时造成明显卡顿 */
+.transition-transform {
+  transition: transform var(--duration-base) var(--ease-out);
+}
+
+/* ============ 无障碍 ============ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============ 打印 ============ */
+@media print {
+  .no-print { display: none !important; }
+}
