@@ -1,0 +1,186 @@
+syntax = "proto3";
+
+// ProbeOne Agent 通信契约
+//
+// 设计红线（修改本文件前务必阅读 PRD 7.1）：
+//   Agent 是只读的。服务端只能接收数据，不能向 Agent 下发任何命令。
+//   因此本文件中不存在 Exec / RunCommand / Terminal / FileManager / Upgrade
+//   等任何具有执行能力的 RPC 方法。唯一的服务端→客户端消息是 ConfigSync，
+//   它只携带采集配置（采样间隔、启用的指标项、时区），不产生副作用。
+//
+//   这是本项目与 nezhahq/nezha 的根本区别。哪吒的 Command / Terminal /
+//   FileManager 三个任务类型被安全厂商披露为 RAT 滥用载体，攻击者可用其
+//   获得 root / SYSTEM shell，且该二进制在 72 家杀毒厂商处零检出。
+//   详见 PRD 1.1。
+package probeone.agent.v1;
+
+option go_package = "github.com/m202471895/probeone/api/agent/v1;agentv1";
+
+// ============ 服务（仅接收）============
+
+service AgentService {
+  // 一次��鉴权。客户端凭据通过 gRPC metadata 传递：
+  //   client-uuid: 节点 UUID
+  //   client-secret: 节点密钥明文
+  rpc Handshake(HandshakeRequest) returns (HandshakeResponse);
+
+  // 双向流：Agent 持续推送指标，Server 仅返回 ACK。
+  // 流不可用时降级为 ReportOnce。
+  rpc ReportStream(stream AgentMessage) returns (stream ServerMessage);
+
+  // 降级路径：无流能力时使用，每次上报一次。
+  rpc ReportOnce(AgentMessage) returns (ServerMessage);
+}
+
+message HandshakeRequest {
+  string agent_version = 1;
+  string os_type = 2;
+  string arch = 3;
+}
+
+message HandshakeResponse {
+  bool success = 1;
+  string session_id = 2;
+  // 服务端建议的心跳间隔与上报间隔（秒）。
+  // Agent 应服从服务端下发值，而非本地配置。
+  int32 heartbeat_sec = 3;
+  int32 report_interval_sec = 4;
+  // 失败原因（success=false 时有值），面向运维排查，不含内部细节。
+  string message = 5;
+}
+
+message AgentMessage {
+  oneof payload {
+    ReportMetrics metrics = 1;
+    ReportHostInfo host = 2;
+    ReportAgentEvent event = 3;
+  }
+  string session_id = 100;
+}
+
+message ServerMessage {
+  oneof payload {
+    Ack ack = 1;
+    ConfigSync config = 2;
+  }
+  string session_id = 100;
+}
+
+message Ack {
+  uint64 seq = 1;
+  string message = 2;
+}
+
+// ConfigSync 是服务端能下发给Agent 的全部内容。
+// 只含采集配置，无任何可执行语义。新增字段必须保持向后兼容。
+message ConfigSync {
+  int32 report_interval_sec = 1;
+  repeated string enabled_metrics = 2;
+  string tz = 3;
+}
+
+message ReportMetrics {
+  int64 collected_at = 1;  // unix 秒，由 Agent 本地时钟产出
+  CpuStat cpu = 2;
+  MemStat mem = 3;
+  repeated DiskStat disks = 4;
+  repeated NetStat nets = 5;
+  LoadStat load = 6;
+  int64 uptime = 7;
+  int32 tcp_conn_count = 8;
+  repeated SensorStat sensors = 9;
+  int32 seq = 10;
+  // 硬件指纹，服务端据此判断是否发生升配（PRD 3.1.2 / 8.4）
+  string hardware_fp = 11;
+}
+
+message CpuStat {
+  float usage = 1;  // 0-100
+  repeated float per_core = 2;
+  string model = 3;
+  int32 cores_physical = 4;
+  int32 cores_logical = 5;
+}
+
+message MemStat {
+  int64 total = 1;
+  int64 used = 2;
+  int64 available = 3;
+  float usage = 4;
+  int64 swap_total = 5;
+  int64 swap_used = 6;
+}
+
+message DiskStat {
+  string mount = 1;
+  string device = 2;
+  string fstype = 3;
+  int64 total = 4;
+  int64 used = 5;
+  float usage = 6;
+  int64 read_bps = 7;
+  int64 write_bps = 8;
+}
+
+message NetStat {
+  string iface = 1;
+  int64 rx_bps = 2;
+  int64 tx_bps = 3;
+  int64 rx_total = 4;
+  int64 tx_total = 5;
+}
+
+message LoadStat {
+  float load1 = 1;
+  float load5 = 2;
+  float load15 = 3;
+}
+
+message SensorStat {
+  string name = 1;
+  string kind = 2;  // temperature / fan / power
+  float value = 3;
+  string unit = 4;
+}
+
+// ReportHostInfo 按变化频率分三类（PRD 3.1.2）：
+//   A 类不可变   字段 1-5, 11      仅首次握手后发送
+//   B 类硬件规格 字段 6, 7, 12, 13  每轮 ReportMetrics 也会带，此处为兜底
+//   C 类运行时    字段 8, 9, 10     每次覆盖
+//
+// 关键：B 类字段以 ReportMetrics 为权威源，本消息中的副本仅用于交叉校验。
+// 升配（如 vCPU 从 4 变8）必须能被服务端发现，因此 B 类不得只在启动时发一次。
+message ReportHostInfo {
+  // ---- A 类：不可变 ----
+  string hostname = 1;
+  string fqdn = 2;
+  string os_type = 3;
+  string os_version = 4;
+  string arch = 5;
+  string agent_version = 11;
+
+  // ---- B 类：硬件规格（可变）----
+  string cpu_model = 6;
+  int64 mem_total = 7;
+  repeated DiskInfo disks = 12;
+  // 硬件指纹：SHA256(cores + mem_total + 排序后磁盘列表 + cpu_model)[:16]
+  string hardware_fp = 13;
+
+  // ---- C 类：运行时环境 ----
+  int64 boot_time = 8;
+  string public_ip = 9;
+  int64 agent_started_at = 10;
+}
+
+message DiskInfo {
+  string device = 1;  // /dev/sda1
+  string mount = 2;   // /
+  string fstype = 3;  // ext4
+  int64 total = 4;    // 字节
+}
+
+message ReportAgentEvent {
+  string type = 1;  // start / stop / restart / config_reload / error
+  string detail = 2;
+  int64 occurred_at = 3;
+}

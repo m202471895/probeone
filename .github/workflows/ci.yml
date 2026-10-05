@@ -1,0 +1,148 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.23"
+
+jobs:
+  build:
+    name: 构建与测试
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component: [server, agent]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: ${{ matrix.component }}/go.sum
+
+      - name: 拉取依赖
+        working-directory: ${{ matrix.component }}
+        run: go mod download
+
+      - name: 静态检查
+        working-directory: ${{ matrix.component }}
+        run: go vet ./...
+
+      - name: 单元测试
+        working-directory: ${{ matrix.component }}
+        run: go test -race -cover ./...
+
+      - name: 构建
+        working-directory: ${{ matrix.component }}
+        run: CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /dev/null ./cmd/...
+
+  # 安全断言必须独立成一个 job：它是本项目最核心的防线，
+  # 与功能构建解耦，避免某次构建失败导致安全检查被跳过。
+  security:
+    name: 安全断言
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: 安装 go 工具
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: 安全断言
+        run: bash scripts/security-check.sh
+
+      # 验证断言本身可靠——一个永远通过的安全脚本比没有脚本更危险
+      - name: 断言自测（确认真能拦住违规）
+        run: bash scripts/security-check-selftest.sh
+
+      - name: 依赖漏洞扫描
+        working-directory: server
+        run: govulncheck ./...
+
+      - name: 依赖漏洞扫描（Agent）
+        working-directory: agent
+        run: govulncheck ./...
+
+      - name: 校验 .env.example 未被提交
+        run: |
+          if [ -f .env ]; then
+            echo "::error::.env 不应提交到仓库"
+            exit 1
+          fi
+          echo "OK: .env 未入库"
+
+  # 交叉编译验证 Agent 的跨平台承诺（PRD G3）
+  agent-cross-compile:
+    name: Agent 跨平台编译
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: 交叉编译
+        working-directory: agent
+        run: |
+          set -e
+          mkdir -p /tmp/dist
+          for pair in "linux amd64" "linux arm64" "darwin amd64" "darwin arm64" "windows amd64" "windows arm64"; do
+            set -- $pair
+            echo "building $1/$2"
+            CGO_ENABLED=0 GOOS=$1 GOARCH=$2 go build -trimpath -ldflags="-s -w" \
+              -o /tmp/dist/probeone-agent-$1-$2 ./cmd/agent
+          done
+          ls -lh /tmp/dist/
+
+      - name: 校验体积（PRD G3 要求 ≤ 15MB）
+        run: |
+          fail=0
+          for f in /tmp/dist/*; do
+            size=$(du -m "$f" | cut -f1)
+            if [ "$size" -gt 15 ]; then
+              echo "::error::$f 体积 ${size}MB，超过 15MB 上限"
+              fail=1
+            fi
+          done
+          exit $fail
+
+  proto:
+    name: 协议契约校验
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 protoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+          protoc --version
+
+      - name: 校验 proto 可编译
+        run: |
+          protoc --proto_path=api \
+            --descriptor_set_out=/dev/null \
+            api/agent/v1/agent.proto
+          echo "OK: agent.proto 语法正确"
+
+      # 防回归：确保 proto 中不会悄悄出现命令下发方法
+      - name: 协议安全检查
+        run: |
+          if grep -E '^[[:space:]]*rpc[[:space:]]+' api/agent/v1/agent.proto \
+             | grep -iE 'exec|command|terminal|shell|file|upload|download|upgrade|script'; then
+            echo "::error::协议中出现有执行能力的 RPC，违反 PRD 7.1 安全红线"
+            exit 1
+          fi
+          echo "OK: 协议中无命令下发方法"

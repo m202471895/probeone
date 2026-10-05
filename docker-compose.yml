@@ -1,0 +1,36 @@
+services:
+  probeone:
+    # 正式发布应固定具体版本号或 digest，不要用 latest
+    image: probeone/probeone:v1.0.0
+    container_name: probeone
+    ports:
+      - "8000:8000"    # Web 面板
+      - "8008:8008"    # Agent gRPC
+    environment:
+      - TZ=${TZ:-Asia/Shanghai}
+      - PROBEONE_DB_DRIVER=${PROBEONE_DB_DRIVER:-sqlite}
+      - PROBEONE_DB_PATH=${PROBEONE_DB_PATH:-/data/probeone.db}
+      - PROBEONE_MASTER_KEY=${PROBEONE_MASTER_KEY:?必填，请用 openssl rand -base64 32 生成}
+      - PROBEONE_ALLOW_REGISTRATION=${PROBEONE_ALLOW_REGISTRATION:-false}
+      - PROBEONE_PUBLIC_URL=${PROBEONE_PUBLIC_URL:-}
+      - PROBEONE_LOG_LEVEL=${PROBEONE_LOG_LEVEL:-info}
+      - PROBEONE_LOG_FORMAT=${PROBEONE_LOG_FORMAT:-json}
+      # 反代场景必须设置，否则审计日志里所有 IP 都是代理地址
+      - PROBEONE_TRUST_PROXY=${PROBEONE_TRUST_PROXY:-}
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    # 基础镜像已用非 root 用户，此处再做一层只读保护
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
