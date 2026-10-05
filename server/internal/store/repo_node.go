@@ -222,9 +222,14 @@ func (r *nodeRepo) Count(ctx context.Context) (int, error) {
 	return n, err
 }
 
+// TouchReport 记录一次上报并把节点置为在线。
+//
+// pending 也要转 online：pending 的语义是"已添加但 Agent 从未连上过"。
+// 若这里只处理 offline，新装的 Agent 第一次上报后状态仍是 pending，
+// 面板上会一直显示"待接入"，而实际上它已经在正常上报了。
 func (r *nodeRepo) TouchReport(ctx context.Context, id int64, at time.Time) error {
 	q := `UPDATE nodes SET last_report_at = ?, last_seen_at = ?,
-		status = CASE WHEN status = 'offline' THEN 'online' ELSE status END,
+		status = CASE WHEN status IN ('offline', 'pending') THEN 'online' ELSE status END,
 		updated_at = ? WHERE id = ?`
 	_, err := r.db.ExecContext(ctx, r.d.Rebind(q), at, at, at, id)
 	return err

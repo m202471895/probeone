@@ -79,6 +79,12 @@ deps: ## 下载 Go 依赖
 	cd server && $(GO) mod download
 	cd agent && $(GO) mod download
 
+# protoc 与插件不在 PATH 时的兜底位置。
+# 装在 ~/.workbuddy/binaries 下（隔离目录，不污染系统）。
+PROTOC_DIR := $(HOME)/.workbuddy/binaries/protoc/25.3/bin
+GOPATH_BIN := $(shell $(GO) env GOPATH)/bin
+export PATH := $(PROTOC_DIR):$(GOPATH_BIN):$(PATH)
+
 .PHONY: proto
 proto: ## 生成 protobuf Go 代码
 	@command -v protoc >/dev/null 2>&1 || { \
