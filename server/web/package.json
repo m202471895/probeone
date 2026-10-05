@@ -8,19 +8,24 @@
     "build": "vue-tsc --noEmit && vite build",
     "build:only": "vite build",
     "preview": "vite preview",
-    "typecheck": "vue-tsc --noEmit"
+    "typecheck": "vue-tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
+    "dayjs": "^1.11.13",
+    "echarts": "^5.5.1",
+    "pinia": "^2.3.0",
+    "topojson-client": "^3.1.0",
     "vue": "^3.5.13",
     "vue-router": "^4.5.0",
-    "pinia": "^2.3.0",
-    "echarts": "^5.5.1",
-    "dayjs": "^1.11.13"
+    "world-atlas": "^2.0.2"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.1",
     "typescript": "^5.7.2",
     "vite": "^6.0.7",
+    "vitest": "^5.0.3",
     "vue-tsc": "^2.2.0"
   }
 }

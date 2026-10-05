@@ -25,6 +25,10 @@ const mkNode = (i) => ({
   agent_version: '1.0.0', hostname: `web-${String(i+1).padStart(2,'0')}`,
   public_ip: `203.0.${113 + Math.floor(i/250)}.${10+i}`,
   geo_country: ['HK','JP','SG','US','DE','KR','TW'][i%7],
+  geo_city: ['香港','东京','新加坡','洛杉矶','法兰克福','首尔','台北'][i%7],
+  // 经纬度用各城市真实坐标，地图打点才准
+  geo_lat: [22.32, 35.68, 1.35, 34.05, 50.11, 37.57, 25.03][i%7],
+  geo_lon: [114.17, 139.65, 103.82, -118.24, 8.68, 126.98, 121.57][i%7],
   last_seen_at: new Date(now - rnd(i)*3600000).toISOString(),
   disk_info: [{ mount:'/', fstype:'ext4', total: 80*1024**3 }, { mount:'/data', fstype:'xfs', total: 320*1024**3 }],
 })

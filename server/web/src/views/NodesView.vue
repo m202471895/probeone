@@ -6,9 +6,10 @@ import CardBox from '@/components/CardBox.vue'
 import StatusDot from '@/components/StatusDot.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import Skeleton from '@/components/Skeleton.vue'
+import CountryFlag from '@/components/CountryFlag.vue'
 import { useNodeStore } from '@/stores/node'
 import { useAuthStore } from '@/stores/auth'
-import { formatBytes, formatBits, formatRelative } from '@/utils/format'
+import { formatBytes, formatBits, formatRelative, regionName } from '@/utils/format'
 
 const nodes = useNodeStore()
 const auth = useAuthStore()
@@ -165,6 +166,12 @@ onBeforeUnmount(() => {
               </span>
             </td>
             <td class="col-time">
+              <span class="geo-cell">
+                <CountryFlag v-if="node.geo_country" :code="node.geo_country" :size="13" />
+                <span class="text-tertiary">
+                  {{ node.geo_city || regionName(node.geo_country) }}
+                </span>
+              </span>
               <span class="text-tertiary">{{ formatRelative(node.last_report_at) }}</span>
             </td>
           </tr>
@@ -282,7 +289,14 @@ onBeforeUnmount(() => {
   background: var(--bg-hover);
 }
 
-.col-name { min-width: 180px; }
+.geo-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: 1px;
+}
+
+.col-name { min-width: 190px; }
 .col-status { width: 60px; }
 .col-num { width: 100px; text-align: right; }
 .col-net { width: 120px; }
@@ -302,6 +316,9 @@ onBeforeUnmount(() => {
 }
 
 .node-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   font-weight: 500;
   transition: color var(--duration-fast) var(--ease-out);
 }

@@ -9,11 +9,13 @@ import { computed, onMounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import CardBox from '@/components/CardBox.vue'
 import StatusDot from '@/components/StatusDot.vue'
+import CountryFlag from '@/components/CountryFlag.vue'
+import WorldMap from '@/components/WorldMap.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { useNodeStore } from '@/stores/node'
 import { useMonitorStore } from '@/stores/monitor'
 import { useAlertStore } from '@/stores/alert'
-import { formatBytes, formatPercent, formatRelative, monitorTypeText } from '@/utils/format'
+import { formatBytes, formatPercent, formatRelative, monitorTypeText, regionName } from '@/utils/format'
 
 const nodes = useNodeStore()
 const monitors = useMonitorStore()
@@ -49,6 +51,22 @@ const stats = computed(() => [
     tone: alerts.criticalCount > 0 ? 'critical' : alerts.unackedCount > 0 ? 'warning' : 'ok',
   },
 ])
+
+/** 地图点位：过滤掉没有坐标的节点，画错位置比不画更糟。 */
+const mapPoints = computed(() =>
+  nodes.nodes
+    .filter((n): n is typeof n & { geo_lat: number; geo_lon: number } =>
+      typeof n.geo_lat === 'number' && typeof n.geo_lon === 'number',
+    )
+    .map((n) => ({
+      id: n.id,
+      name: n.name,
+      lat: n.geo_lat,
+      lon: n.geo_lon,
+      status: n.status,
+      country: n.geo_country,
+    })),
+)
 
 function memUsage(nodeId: number): number | null {
   const m = nodes.latestOf(nodeId)
@@ -109,6 +127,7 @@ onMounted(async () => {
           >
             <div class="node-head">
               <StatusDot :status="node.status" />
+              <CountryFlag :code="node.geo_country" :size="13" />
               <span class="node-name truncate">{{ node.name }}</span>
             </div>
             <div class="node-metrics">
@@ -132,7 +151,7 @@ onMounted(async () => {
               </div>
             </div>
             <div class="node-foot">
-              {{ node.geo_country || node.os_type || '未知地区' }}
+              {{ node.geo_city || regionName(node.geo_country) }}
               <span v-if="node.last_seen_at" class="text-tertiary">
                 · {{ formatRelative(node.last_seen_at) }}
               </span>
@@ -173,6 +192,11 @@ onMounted(async () => {
         </ul>
       </CardBox>
     </div>
+
+    <!-- 节点分布地图 -->
+    <CardBox v-if="mapPoints.length > 0" title="节点分布" :padded="false">
+      <WorldMap :points="mapPoints" :height="340" />
+    </CardBox>
 
     <!-- 汇总条 -->
     <CardBox v-if="nodes.total > 0 || monitors.total > 0" title="资源汇总">

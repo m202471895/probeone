@@ -145,6 +145,10 @@ export function failReasonText(r: string): string {
   return map[r] ?? r
 }
 
+/** 地区代码 → 中文名。转发自 regions.ts，统一出口。 */
+export { getRegion, regionName, countryCenter } from './regions'
+export type { RegionInfo } from './regions'
+
 /** 监控类型 → 中文 */
 export function monitorTypeText(t: string): string {
   const map: Record<string, string> = {

@@ -74,6 +74,9 @@ export interface Node {
   public_ip?: string
   geo_country?: string
   geo_city?: string
+  /** 经纬度，用于地图打点。城市级精度 */
+  geo_lat?: number | null
+  geo_lon?: number | null
   last_seen_at?: string | null
   last_report_at?: string | null
 }
