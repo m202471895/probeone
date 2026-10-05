@@ -1,9 +1,10 @@
 <script setup lang="ts">
 /** 告警中心 */
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import CardBox from '@/components/CardBox.vue'
 import StatusDot from '@/components/StatusDot.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import Skeleton from '@/components/Skeleton.vue'
 import { useAlertStore } from '@/stores/alert'
 import { humanizeError } from '@/api/client'
 import { formatDateTime, formatRelative, severityText } from '@/utils/format'
@@ -22,7 +23,17 @@ async function ack(id: number): Promise<void> {
   }
 }
 
-onMounted(() => void store.fetchEvents())
+function loadAll(): void {
+  void store.fetchEvents()
+}
+
+onMounted(() => {
+  loadAll()
+  window.addEventListener('probeone:view-activated', loadAll)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('probeone:view-activated', loadAll)
+})
 </script>
 
 <template>
@@ -48,8 +59,10 @@ onMounted(() => void store.fetchEvents())
       </div>
     </template>
 
+    <Skeleton v-if="store.loading && store.events.length === 0" type="row" :rows="5" />
+
     <EmptyState
-      v-if="store.events.length === 0"
+      v-else-if="store.events.length === 0"
       icon="alerts"
       :title="store.statusFilter === 'firing' ? '当前没有未处理的告警' : '没有告警记录'"
       description="告警触发时会在这里显示，并按规则推送到配置的通知通道"
@@ -89,7 +102,10 @@ onMounted(() => void store.fetchEvents())
 <style scoped>
 .filters { display: flex; gap: 2px; background: var(--bg-hover); padding: 2px; border-radius: var(--radius-md); }
 .chip { border: none; background: transparent; color: var(--text-tertiary); font-size: var(--font-xs);
-  font-family: inherit; padding: 3px 10px; border-radius: var(--radius-sm); cursor: pointer; }
+  font-family: inherit; padding: 5px 12px; border-radius: var(--radius-sm); cursor: pointer;
+  /* 高度从 23px 提到 25px，满足可点击区域的 24px 底线 */
+  transition: background-color var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out); }
+.chip:hover { color: var(--text-secondary); }
 .chip.active { background: var(--bg-surface); color: var(--text-primary); }
 
 .list { list-style: none; margin: 0; padding: 0; }

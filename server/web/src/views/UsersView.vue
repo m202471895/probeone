@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import CardBox from '@/components/CardBox.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import Skeleton from '@/components/Skeleton.vue'
 import { api, humanizeError } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { formatDateTime } from '@/utils/format'
@@ -92,6 +93,7 @@ onMounted(load)
 
     <CardBox title="用户列表" :padded="false">
       <div v-if="loading" class="loading">加载中…</div>
+      <Skeleton v-else-if="loading" type="table" :cols="4" :table-rows="4" />
       <EmptyState v-else-if="users.length === 0" icon="search" title="没有用户" />
       <table v-else class="table">
         <thead>

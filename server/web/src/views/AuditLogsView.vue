@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import CardBox from '@/components/CardBox.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import Skeleton from '@/components/Skeleton.vue'
 import { api, humanizeError } from '@/api/client'
 import { formatDateTime } from '@/utils/format'
 import type { AuditLog } from '@/api/types'
@@ -69,15 +70,23 @@ onMounted(load)
   <CardBox title="审计日志" :padded="false">
     <template #actions>
       <div class="toolbar">
-        <input v-model="actionFilter" type="text" class="search"
-          placeholder="按动作过滤，如 create_node" @keyup.enter="search" />
+        <input
+          v-model="actionFilter"
+          type="search"
+          class="search"
+          aria-label="按动作过滤审计日志"
+          placeholder="按动作过滤，如 create_node"
+          @keyup.enter="search"
+        />
         <button class="btn-ghost" @click="search">查询</button>
       </div>
     </template>
 
     <p v-if="error" class="msg-err">{{ error }}</p>
 
-    <EmptyState v-if="!loading && logs.length === 0" icon="search"
+    <Skeleton v-if="loading && logs.length === 0" type="table" :cols="6" :table-rows="8" />
+
+    <EmptyState v-else-if="logs.length === 0" icon="search"
       title="没有审计记录" description="所有写操作都会记录在这里" />
 
     <div v-else class="table-wrap">

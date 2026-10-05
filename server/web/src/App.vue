@@ -31,6 +31,17 @@ const connected = ref(false)
  */
 const showShell = computed(() => auth.isLoggedIn && route.meta.public !== true)
 
+/**
+ * 视图重新激活时通知页面刷新数据。
+ *
+ * KeepAlive 缓存的组件再次进入不会重跑 onMounted，
+ * 必须由外部显式通知，否则监控数据会停留在旧值——
+ * 对监控面板来说，"看到几分钟前的数据"比"看到空数据"更危险。
+ */
+function onViewActivated(): void {
+  window.dispatchEvent(new CustomEvent('probeone:view-activated'))
+}
+
 const pageTitle = computed(() => {
   const map: Record<string, string> = {
     '/': '总览',
@@ -139,10 +150,19 @@ onMounted(() => {
 
         <main class="content">
           <RouterView v-slot="{ Component }">
-            <!-- keep-alive 保留列表页的筛选与滚动位置，
-                 代价是内存占用略增。对监控面板来说体验收益更大。 -->
+            <!--
+              KeepAlive 保留列表页的筛选与滚动位置，代价是内存略增。
+
+              但它有个副作用必须处理：组件被缓存后onMounted 不再执行，
+              从别的页面切回来就不会重新拉数据——监控面板上这意味着
+              看到的是几分钟前的旧数据。
+
+              解决：监听 onActivated（缓存组件每次激活都会触发），
+              派发一个全局事件让页面重新拉数据。
+              onMounted 仍用于首次进入，两者不冲突。
+            -->
             <KeepAlive :max="6">
-              <component :is="Component" />
+              <component :is="Component" @activated="onViewActivated" />
             </KeepAlive>
           </RouterView>
         </main>
@@ -287,8 +307,16 @@ onMounted(() => {
   color: var(--text-tertiary);
   font-size: var(--font-sm);
   cursor: pointer;
-  padding: 0;
+  /* 点击区域至少 24px 高（可访问性底线），
+     视觉上仍是纯文字，靠 padding 撑开热区 */
+  padding: var(--space-1) var(--space-2);
+  margin: calc(-1 * var(--space-1)) calc(-1 * var(--space-2));
+  border-radius: var(--radius-sm);
   transition: color var(--duration-fast) var(--ease-out);
+}
+
+.link-btn:hover {
+  background: var(--bg-hover);
 }
 
 .link-btn:hover {

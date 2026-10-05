@@ -1,10 +1,11 @@
 <script setup lang="ts">
 /** 服务器列表 */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import CardBox from '@/components/CardBox.vue'
 import StatusDot from '@/components/StatusDot.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import Skeleton from '@/components/Skeleton.vue'
 import { useNodeStore } from '@/stores/node'
 import { useAuthStore } from '@/stores/auth'
 import { formatBytes, formatBits, formatRelative } from '@/utils/format'
@@ -52,8 +53,20 @@ function onStatusChange(e: Event): void {
   void nodes.fetch()
 }
 
-onMounted(async () => {
+async function loadAll(): Promise<void> {
   await Promise.all([nodes.fetch(), nodes.fetchGroups(), nodes.fetchLatestAll()])
+}
+
+onMounted(loadAll)
+
+// KeepAlive 缓存后切回来不会重跑 onMounted，必须监听激活事件手动刷新，
+// 否则会看到几分钟前的旧指标
+onMounted(() => {
+  window.addEventListener('probeone:view-activated', loadAll)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('probeone:view-activated', loadAll)
 })
 </script>
 
@@ -65,6 +78,7 @@ onMounted(async () => {
           v-model="search"
           type="search"
           class="search"
+          aria-label="搜索"
           placeholder="搜索名称、主机名或 IP"
           @keyup.enter="onSearch"
         />
@@ -78,8 +92,10 @@ onMounted(async () => {
       </div>
     </template>
 
+    <Skeleton v-if="nodes.loading && sorted.length === 0" type="table" :cols="6" :table-rows="7" />
+
     <EmptyState
-      v-if="sorted.length === 0"
+      v-else-if="sorted.length === 0"
       icon="nodes"
       :title="search ? '没有匹配的节点' : '还没有添加节点'"
       :description="

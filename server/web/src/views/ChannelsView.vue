@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import CardBox from '@/components/CardBox.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import Skeleton from '@/components/Skeleton.vue'
 import { humanizeError } from '@/api/client'
 import { useAlertStore } from '@/stores/alert'
 import { maskSecret } from '@/utils/format'
@@ -137,7 +138,9 @@ onMounted(() => void store.fetchChannels())
     <p v-if="error" class="msg-err">{{ error }}</p>
 
     <CardBox title="已有通道" :padded="false">
-      <EmptyState v-if="store.channels.length === 0" icon="search"
+      <Skeleton v-if="store.loading && store.channels.length === 0" type="row" :rows="3" />
+
+      <EmptyState v-else-if="store.channels.length === 0" icon="search"
         title="还没有配置通知通道" description="配置后告警才能推送到你的 IM 或邮箱" />
       <ul v-else class="list">
         <li v-for="c in store.channels" :key="c.id" class="item">

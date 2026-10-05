@@ -268,10 +268,22 @@ onMounted(async () => {
   font-size: var(--font-xs);
   color: var(--text-tertiary);
   white-space: nowrap;
+  /*
+   * 「全部 →」这类小字链接视觉上要紧凑，但点击区域必须够。
+   * padding 撑开热区，负 margin 抵消撑开的视觉占位，
+   * 这样既满足 24px 底线，又不会顶开卡片标题的布局。
+   */
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1) var(--space-2);
+  margin: calc(-1 * var(--space-1)) calc(-1 * var(--space-2));
+  border-radius: var(--radius-sm);
+  transition: color var(--duration-fast) var(--ease-out), background-color var(--duration-fast) var(--ease-out);
 }
 
 .more:hover {
   color: var(--accent);
+  background: var(--accent-subtle);
 }
 
 /* ---- 节点网格 ---- */

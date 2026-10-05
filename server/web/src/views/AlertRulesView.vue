@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import CardBox from '@/components/CardBox.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import Skeleton from '@/components/Skeleton.vue'
 import { api, humanizeError } from '@/api/client'
 import { useAlertStore } from '@/stores/alert'
 import { formatDateTime } from '@/utils/format'
@@ -98,7 +99,9 @@ onMounted(async () => {
     <p v-if="error" class="msg-err">{{ error }}</p>
 
     <CardBox title="已有规则" :padded="false">
-      <EmptyState v-if="store.rules.length === 0" icon="alerts"
+      <Skeleton v-if="store.loading && store.rules.length === 0" type="row" :rows="3" />
+
+      <EmptyState v-else-if="store.rules.length === 0" icon="alerts"
         title="还没有告警规则" description="规则决定什么情况下触发通知" />
       <ul v-else class="list">
         <li v-for="r in store.rules" :key="r.id" class="item">
@@ -229,7 +232,7 @@ onMounted(async () => {
 .item-cond { font-size: var(--font-xs); color: var(--text-secondary); margin-top: 2px; }
 .item-chan { font-size: var(--font-xs); margin-top: 1px; }
 
-.btn-del { flex-shrink: 0; height: 26px; padding: 0 var(--space-2);
+.btn-del { flex-shrink: 0; min-height: 28px; min-width: 44px; padding: 0 var(--space-2);
   border: none; background: transparent; color: var(--text-tertiary);
   font-size: var(--font-xs); font-family: inherit; cursor: pointer;
   border-radius: var(--radius-sm); }

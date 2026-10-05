@@ -1,10 +1,11 @@
 <script setup lang="ts">
 /** 网站监控列表 */
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
 import CardBox from '@/components/CardBox.vue'
 import StatusDot from '@/components/StatusDot.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import Skeleton from '@/components/Skeleton.vue'
 import { useMonitorStore } from '@/stores/monitor'
 import { useAuthStore } from '@/stores/auth'
 import { formatPercent, formatRelative, monitorTypeText, failReasonText } from '@/utils/format'
@@ -31,7 +32,17 @@ function onTypeChange(e: Event): void {
   void monitors.fetch()
 }
 
-onMounted(() => void monitors.fetch())
+function loadAll(): void {
+  void monitors.fetch()
+}
+
+onMounted(() => {
+  loadAll()
+  window.addEventListener('probeone:view-activated', loadAll)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('probeone:view-activated', loadAll)
+})
 </script>
 
 <template>
@@ -42,6 +53,7 @@ onMounted(() => void monitors.fetch())
           v-model="search"
           type="search"
           class="search"
+          aria-label="搜索"
           placeholder="搜索名称或目标"
           @keyup.enter="onSearch"
         />
@@ -77,8 +89,10 @@ onMounted(() => void monitors.fetch())
       </div>
     </div>
 
+    <Skeleton v-if="monitors.loading && sorted.length === 0" type="table" :cols="5" :table-rows="6" />
+
     <EmptyState
-      v-if="sorted.length === 0"
+      v-else-if="sorted.length === 0"
       icon="monitors"
       :title="search ? '没有匹配的监控' : '还没有添加监控'"
       :description="
