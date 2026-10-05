@@ -124,6 +124,62 @@ def main() -> int:
         if v_drag == v_reset:
             problems.append("拖动无效")
 
+        # 拖动方向必须与鼠标一致。
+        # 内容不该有"橡皮筋"效果——鼠标往上拖，内容也要往上。
+        # 这个断言能抓住符号写反的 bug：viewBox 改了但方向相反。
+        def node_pos():
+            return page.evaluate("""()=>{
+              const d=document.querySelector('.point-dot');
+              const r=d.getBoundingClientRect();
+              return {x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)};
+            }""")
+
+        page.click(".map-controls .ctl >> nth=2")
+        page.wait_for_timeout(300)
+        box2 = page.locator(".map-svg").bounding_box()
+        gx, gy = box2["x"] + box2["width"] * 0.25, box2["y"] + box2["height"] * 0.75
+
+        p0 = node_pos()
+        page.mouse.move(gx, gy)
+        page.mouse.down()
+        page.mouse.move(gx, gy - 100, steps=10)
+        page.mouse.up()
+        page.wait_for_timeout(300)
+        p1 = node_pos()
+        dy = p1["y"] - p0["y"]
+        mark = "✓" if dy < -50 else "✗"
+        print(f"  {mark} 向上拖动：节点 dy={dy}px（应 ≤-50）")
+        if dy > -50:
+            problems.append(f"拖动方向反了：鼠标上拖 100px，内容反而下移 {-dy}px")
+
+        # 水平方向同样要正确
+        p2 = node_pos()
+        page.mouse.move(gx, gy)
+        page.mouse.down()
+        page.mouse.move(gx + 120, gy, steps=10)
+        page.mouse.up()
+        page.wait_for_timeout(300)
+        p3 = node_pos()
+        ddx = p3["x"] - p2["x"]
+        mark = "✓" if ddx > 50 else "✗"
+        print(f"  {mark} 向右拖动：节点 dx={ddx}px（应 ≥50）")
+        if ddx < 50:
+            problems.append(f"水平拖动方向反了：鼠标右拖 120px，内容左移 {-ddx}px")
+
+        # 缩放锚点稳定性：以某点为锚缩放，该点的屏幕位置不该明显漂移
+        page.click(".map-controls .ctl >> nth=2")
+        page.wait_for_timeout(300)
+        a0 = node_pos()
+        page.mouse.move(a0["x"], a0["y"])
+        page.mouse.wheel(0, -300)
+        page.wait_for_timeout(300)
+        a1 = node_pos()
+        drift = max(abs(a1["x"] - a0["x"]), abs(a1["y"] - a0["y"]))
+        mark = "✓" if drift <= 20 else "✗"
+        print(f"  {mark} 缩放锚点：漂移 {drift}px（应 ≤20）")
+        if drift > 20:
+            problems.append(f"缩放锚点漂移 {drift}px")
+
         # 4) 铺满容器
         fill = page.evaluate("""()=>{
           const wm=document.querySelector('.world-map').getBoundingClientRect();

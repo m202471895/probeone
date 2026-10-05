@@ -197,10 +197,18 @@ function onPointerMove(e: PointerEvent): void {
   const rect = svg.getBoundingClientRect()
   if (rect.width === 0) return
 
-  // 屏幕位移换算成 viewBox 位移
+  /*
+   * 屏幕位移换算成 viewBox 位移。
+   *
+   * 符号必须取反：viewBox 的 y 增大表示"视野向下移动"，
+   * 而内容应该跟着鼠标走——鼠标往上拖，内容也要往上。
+   * 直接用鼠标位移会得到"鼠标往上、内容往下"的橡皮筋效果。
+   *
+   * 同理 x：鼠标往右拖，视野要往左移（viewBox.x 减小）。
+   */
   const dx = ((e.clientX - dragStartX) / rect.width) * view.value.w
   const dy = ((e.clientY - dragStartY) / rect.height) * view.value.h
-  view.value = { ...view.value, x: dragViewX + dx, y: dragViewY + dy }
+  view.value = { ...view.value, x: dragViewX - dx, y: dragViewY - dy }
 }
 
 function onPointerUp(e: PointerEvent): void {
