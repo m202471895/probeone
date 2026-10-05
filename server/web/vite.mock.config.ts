@@ -89,8 +89,20 @@ function mockRoutes(req, res, next) {
 
   if (p.startsWith('/api/nodes/metrics/latest'))
     return json(Array.from({length:N},(_,i)=>({ node_id:i+1, ...mkSnapshot(i) })))
-  if (p === '/api/nodes')
-    return json({ items: Array.from({length:N},(_,i)=>mkNode(i)), total:N })
+  if (p === '/api/nodes') {
+    // 支持 status 与关键词过滤——
+    // 前端节点列表有状态筛选与搜索框，mock 忽略参数会让它们看起来失效
+    const q = new URL(req.url, 'http://x').searchParams
+    const st = q.get('status')
+    const kw = (q.get('q') || '').toLowerCase()
+    let items = Array.from({length:N},(_,i)=>mkNode(i))
+    if (st && st !== 'all') items = items.filter(n => n.status === st)
+    if (kw) items = items.filter(n =>
+      n.name.toLowerCase().includes(kw) ||
+      (n.public_ip||'').includes(kw) ||
+      (n.hostname||'').toLowerCase().includes(kw))
+    return json({ items, total: items.length })
+  }
   if (p.startsWith('/api/nodes/') && p.endsWith('/metrics')) {
     const uid = p.split('/')[3]
     const i = Math.max(0, N-1)
@@ -106,9 +118,24 @@ function mockRoutes(req, res, next) {
   if (p.match(/^\/api\/monitors\/\d+\/certificate$/))
     return json({ subject:'CN=example.com', issuer:"Let's Encrypt R3", not_after:new Date(now+76*86400e3).toISOString(), days_left:76, fingerprint:'a3f9c2b1d4e5f678' })
   if (p.match(/^\/api\/monitors\/\d+$/)) return json(mkMonitor(0))
-  if (p === '/api/monitors') return json({ items: Array.from({length:16},(_,i)=>mkMonitor(i)), total:16 })
+  if (p === '/api/monitors') {
+    const q = new URL(req.url, 'http://x').searchParams
+    const ty = q.get('type')
+    const st = q.get('status')
+    const kw = (q.get('q') || '').toLowerCase()
+    let items = Array.from({length:16},(_,i)=>mkMonitor(i))
+    if (ty && ty !== 'all') items = items.filter(m => m.type === ty)
+    if (st && st !== 'all') items = items.filter(m => m.status === st)
+    if (kw) items = items.filter(m =>
+      m.name.toLowerCase().includes(kw) || m.target.toLowerCase().includes(kw))
+    return json({ items, total: items.length })
+  }
 
-  if (p === '/api/alerts') return json({ items: Array.from({length:20},(_,i)=>({
+  if (p === '/api/alerts') {
+    // 必须按 status 过滤——前端点了筛选会带上查询参数，
+    // 忽略它会让"切换筛选"看起来完全没反应。
+    const sp = new URL(req.url, 'http://x').searchParams.get('status')
+    let items = Array.from({length:20},(_,i)=>({
       id:i+1, target_type: i%3===0?'node':i%3===1?'monitor':'cert',
       target_name: mkNode(i%N).name, severity: i%5===0?'critical':i%3===0?'warning':'info',
       status: i%4===0?'resolved':i%7===0?'acked':'firing',
@@ -117,7 +144,10 @@ function mockRoutes(req, res, next) {
       notified: i%4!==0,
       first_fired_at: new Date(now - i*3600000).toISOString(),
       last_fired_at: new Date(now - i*600000).toISOString(),
-    })), total:20 })
+    }))
+    if (sp && sp !== 'all') items = items.filter(x => x.status === sp)
+    return json({ items, total: items.length })
+  }
   if (p === '/api/alert-rules') return json([
       { id:1, name:'CPU 持续过高', target_type:'node', target_id:null, metric:'cpu_usage',
         condition:{op:'>',value:90,for_times:3,for_minutes:2}, severity:'warning',
