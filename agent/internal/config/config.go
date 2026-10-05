@@ -55,8 +55,15 @@ type Network struct {
 }
 
 type Buffer struct {
-	Enabled   bool `yaml:"enabled"`
-	MaxPoints int  `yaml:"max_points"`
+	// Enabled 默认开启：断网期间的数据补传比多占一点内存重要。
+	// 监控系统最不能接受的就是"网络抖动导致曲线出现无法解释的空洞"。
+	Enabled bool `yaml:"enabled"`
+	// MaxPoints 是环形缓冲的容量上限，按采样点计。
+	// 默认 120 点 @ 10s 间隔 = 20 分钟缓冲。
+	MaxPoints int `yaml:"max_points"`
+	// MaxBytes 是硬性内存上限，防止误配置 MaxPoints 导致内存失控。
+	// 达标后丢弃最旧的数据点，保证 Agent 内存占用可预测（PRD G2）。
+	MaxBytes int `yaml:"max_bytes"`
 }
 
 type Log struct {
@@ -74,6 +81,8 @@ const (
 	DefaultLogSizeMB    = 20
 	DefaultLogBackups   = 3
 	DefaultBufferPoints = 120
+	// 单个采样点的编码后大致体积（见 buffer 包的估算）
+	DefaultBufferMaxBytes = 4 * 1024 * 1024
 	// 配置文件权限：仅属主可读写
 	ConfigFileMode os.FileMode = 0o600
 )
@@ -123,8 +132,13 @@ func (c *Config) applyDefaults() {
 	if c.Log.MaxBackups <= 0 {
 		c.Log.MaxBackups = DefaultLogBackups
 	}
+	// 缓冲默认开启，容量给到 20 分钟采样点
+	c.Buffer.Enabled = true
 	if c.Buffer.MaxPoints <= 0 {
 		c.Buffer.MaxPoints = DefaultBufferPoints
+	}
+	if c.Buffer.MaxBytes <= 0 {
+		c.Buffer.MaxBytes = DefaultBufferMaxBytes
 	}
 	// metrics 未配置时采集全部非特权指标
 	if len(c.Collect.Metrics) == 0 {
@@ -150,6 +164,14 @@ func (c *Config) Validate() error {
 	}
 	if c.Collect.IntervalSec < 1 || c.Collect.IntervalSec > 3600 {
 		push("collect.interval_sec = %d 超出合理范围（1-3600）", c.Collect.IntervalSec)
+	}
+
+	// 缓冲容量校验
+	if c.Buffer.MaxPoints < 1 {
+		push("buffer.max_points = %d 至少为 1", c.Buffer.MaxPoints)
+	}
+	if c.Buffer.MaxBytes < 64*1024 {
+		push("buffer.max_bytes = %d 过小，至少 64KB", c.Buffer.MaxBytes)
 	}
 
 	// 生产环境不得关闭证书校验（PRD 9.2 A6）

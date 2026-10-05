@@ -56,6 +56,16 @@ func TestLoad_默认值填充(t *testing.T) {
 	if len(cfg.Metrics()) != 6 {
 		t.Errorf("默认指标数 = %d，期望 6：%v", len(cfg.Metrics()), cfg.Metrics())
 	}
+	// 缓冲应默认开启
+	if !cfg.Buffer.Enabled {
+		t.Error("离线缓冲应默认开启（断网期间数据需补传）")
+	}
+	if cfg.Buffer.MaxPoints != DefaultBufferPoints {
+		t.Errorf("缓冲点数应默认为 %d，实际 = %d", DefaultBufferPoints, cfg.Buffer.MaxPoints)
+	}
+	if cfg.Buffer.MaxBytes != DefaultBufferMaxBytes {
+		t.Errorf("缓冲字节上限应默认为 %d，实际 = %d", DefaultBufferMaxBytes, cfg.Buffer.MaxBytes)
+	}
 	// 未特权标记时，不应把任何指标判为特权
 	for _, m := range cfg.Metrics() {
 		if cfg.IsPrivileged(m) {

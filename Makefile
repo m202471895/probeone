@@ -13,6 +13,21 @@ BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
 GO       ?= go
 GOBIN    := $(shell $(GO) env GOPATH)/bin
+
+# 工具链锁定：禁止自动下载新版 Go。
+# 否则 go get 会把 go.mod 的 go 指令抬高到最新版本并触发工具链下载，
+# 破坏"Go 1.22+"的可移植性承诺。
+export GOTOOLCHAIN := local
+
+# macOS arm64 上gopsutil 的 purego 需要外链模式。
+# 默认 PIE 链接产出的测试二进制缺 LC_UUID，运行时报
+# "dyld: missing LC_UUID load command" 并 abort。
+# 仅在 darwin/arm64 下追加，不影响其他平台的正常构建。
+ifeq ($(shell uname -s),Darwin)
+  ifeq ($(shell uname -m),arm64)
+    TEST_LDFLAGS := -ldflags=-linkmode=external
+  endif
+endif
 BIN_DIR  := bin
 LDFLAGS  := -s -w \
   -X github.com/m202471895/probeone/server/internal/util.Version=$(VERSION) \
@@ -83,8 +98,12 @@ vet: ## go vet 静态检查
 
 .PHONY: test
 test: ## 运行全部单元测试
-	cd server && $(GO) test -race -cover ./...
-	cd agent && $(GO) test -race -cover ./...
+	cd server && $(GO) test $(TEST_LDFLAGS) -race -cover ./...
+	cd agent && $(GO) test $(TEST_LDFLAGS) -race -cover ./...
+
+.PHONY: test-collect
+test-collect: ## 只跑采集器测试（验证真实系统指标）
+	cd agent && $(GO) test $(TEST_LDFLAGS) -v ./internal/collect/
 
 .PHONY: security-check
 security-check: ## 运行安全断言（PRD 9.2 / 3.6.4）
