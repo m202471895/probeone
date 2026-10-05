@@ -12,13 +12,16 @@
  * 投影：等距圆柱（Equirectangular）。
  *   x = (lon + 180) / 360 * width
  *   y = (90 - lat) / 180 * height
- * 简单可逆，代价是高纬度地区横向拉伸——对示意图够用。
+ * 简单可逆，代价是高纬度地区横向拉伸 —— 对示意图够用。
+ *
+ * 缩放拖动：改 viewBox 而非 CSS transform。
+ * 改viewBox 的好处是矢量在任何缩放级别都清晰，
+ * 且屏幕坐标与地理坐标的换算不用额外维护变换矩阵。
  */
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { feature } from 'topojson-client'
 import worldData from 'world-atlas/countries-110m.json'
 import { featureToPath, featureKey, isoCodeOf, type GeoFeature } from '@/charts/geo'
-
 
 export interface MapPoint {
   id: number | string
@@ -28,8 +31,6 @@ export interface MapPoint {
   status: 'online' | 'offline' | 'pending' | 'up' | 'down' | 'paused'
   /** 国家代码，用于地图上按国家高亮 */
   country?: string
-  /** 点击后跳转的地址，通常是 /nodes/{uid} */
-  to?: string
 }
 
 const props = withDefaults(
@@ -40,45 +41,28 @@ const props = withDefaults(
   { height: 320 },
 )
 
-// viewBox 固定 1000x500（2:1，等距圆柱的标准比例）
+// 完整世界范围的宽高（2:1，等距圆柱的标准比例）
 const W = 1000
 const H = 500
 
 /*
- * 裁掉南极洲。
+ * 默认视图。
  *
- * 原始投影是 -90..90 全纬度，但南纬 60 度以南没有任何节点，
- * 却占了约 1/4 画面，把北半球的有效区域压扁。
- * 把 viewBox 上移并收窄，只保留 -60..90 纬度。
+ * 裁掉南极洲：南纬 60 度以南没有任何节点，却占约 1/4 画面。
+ * 投影层会丢弃超出的点，不用只靠 viewBox 裁切。
  */
-const MIN_LAT = -60     // 可见的最南纬度
-const VIEW_Y = -60      // viewBox 起始 y（与 MIN_LAT 对应）
-const VIEW_H = 420      // viewBox 高度
+const DEFAULT_VIEW = { x: 0, y: -60, w: W, h: 420 }
 
+/** 缩放范围：最小看全图，最大放到区域级别。 */
+const MIN_SCALE = 1
+const MAX_SCALE = 12
 
+const view = ref({ ...DEFAULT_VIEW })
 const svgRef = ref<SVGSVGElement | null>(null)
-const paths = ref<Array<{ d: string; id: string }>>([])
+const dragging = ref(false)
+const hovered = ref<MapPoint | null>(null)
 
-/**
- * 经纬度 → SVG 坐标。
- *
- * 南纬 60 度以下的点直接丢弃（返回 null）。
- * 不能只靠 viewBox 裁切——被裁掉的路径仍会参与绘制，
- * 会在边界处留下半截线条（南极洲的横线就是这么来的）。
- */
-function project(lon: number, lat: number): [number, number] | null {
-  if (lat < MIN_LAT) return null
-  const x = ((lon + 180) / 360) * W
-  const y = ((90 - lat) / 180) * H
-  return [x, y]
-}
-
-/**
- * 预生成国界 path。
- *
- * 只算一次并缓存：TopoJSON 转换涉及 thousands of坐标点，
- * 每次渲染重算会明显卡顿。
- */
+/** 预生成国界 path。转换涉及数千坐标点，每次渲染重算会卡。 */
 const countryPaths = computed(() => {
   const topology = worldData as unknown as {
     objects: { countries: Parameters<typeof feature>[0] }
@@ -88,20 +72,23 @@ const countryPaths = computed(() => {
     topology.objects.countries as never,
   ) as unknown as { features: GeoFeature[] }
 
-  // 全部国界都要画出来。ISO 匹配不上只是拿不到高亮能力，
-  // 不该让整块陆地消失——之前按 iso 过滤导致国界一条都没渲染出来。
   return fc.features
     .map((f, i) => {
-      const d = featureToPath(f, W, H, VIEW_Y)
+      const d = featureToPath(f, W, H, DEFAULT_VIEW.y)
       return d ? { d, iso: isoCodeOf(f) ?? '', key: featureKey(f, i) } : null
     })
     .filter((x): x is { d: string; iso: string; key: string } => x !== null)
 })
 
-/**
- * 节点投影后的坐标。
- * 无坐标的节点直接过滤掉——地图上画一个位置错误的点比不画更糟。
- */
+/** 经纬度 → SVG 坐标 */
+function project(lon: number, lat: number): [number, number] | null {
+  if (lat < DEFAULT_VIEW.y) return null
+  const x = ((lon + 180) / 360) * W
+  const y = ((90 - lat) / 180) * H
+  return [x, y]
+}
+
+/** 节点投影后的坐标。无坐标的直接过滤 —— 画错位置比不画更糟。 */
 const projected = computed(() =>
   props.points
     .map((p) => {
@@ -111,85 +98,258 @@ const projected = computed(() =>
     .filter((p): p is NonNullable<typeof p> => p !== null),
 )
 
-/**
- * 有节点的国家代码集合。
- * 用于在地图上给这些国家加一层轻微高亮，方便"哪个区域有节点"一眼可见。
- */
+const total = computed(() => props.points.length)
+const withGeo = computed(() => projected.value.length)
+
+/** 有节点的国家代码集合，用于轻微高亮 */
 const hitCountries = computed(() => {
   const m = new Set<string>()
   for (const p of props.points) {
-    // points 里若带 country 就用；不带则不参与高亮
-    const c = (p as MapPoint & { country?: string }).country
-    if (c) m.add(c.toUpperCase())
+    if (p.country) m.add(p.country.toUpperCase())
   }
   return m
 })
 
-/** 状态对应的圆点颜色 */
-function dotColor(status: MapPoint['status']): string {
-  switch (status) {
-    case 'online':
-    case 'up':
-      return 'var(--down)' // 绿
-    case 'offline':
-    case 'down':
-      return 'var(--critical)' // 红
-    case 'paused':
-      return 'var(--neutral)'
-    default:
-      return 'var(--warning)' // 黄
+const viewBox = computed(
+  () => `${view.value.x} ${view.value.y} ${view.value.w} ${view.value.h}`,
+)
+
+/** 当前缩放倍率，1 = 全图 */
+const scale = computed(() => W / view.value.w)
+
+/** 圆点与命中圈的半径随缩放反向补偿，视觉大小保持稳定 */
+const dotR = computed(() => Math.max(2.5, 4 / scale.value))
+const ringR = computed(() => Math.max(4, 7 / scale.value))
+const hitR = computed(() => Math.max(6, 11 / scale.value))
+
+// ---------- 缩放 ----------
+
+/** 以某个屏幕点为锚缩放，鼠标下的地理位置保持不动 */
+function zoomAt(clientX: number, clientY: number, factor: number): void {
+  const svg = svgRef.value
+  if (!svg) return
+  const rect = svg.getBoundingClientRect()
+  if (rect.width === 0 || rect.height === 0) return
+
+  // 鼠标在 viewBox 坐标里的位置
+  const px = ((clientX - rect.left) / rect.width) * view.value.w + view.value.x
+  const py = ((clientY - rect.top) / rect.height) * view.value.h + view.value.y
+
+  const newW = view.value.w * factor
+  const newH = view.value.h * factor
+
+  // 夹住缩放范围
+  const clampedW = Math.min(Math.max(newW, W / MAX_SCALE), W / MIN_SCALE)
+  const clampedH = clampedW * (view.value.h / view.value.w)
+
+  // 保持锚点位置：锚点在当前视图里的相对比例不变
+  const ratioX = (px - view.value.x) / view.value.w
+  const ratioY = (py - view.value.y) / view.value.h
+  view.value = {
+    x: px - clampedW * ratioX,
+    y: py - clampedH * ratioY,
+    w: clampedW,
+    h: clampedH,
   }
 }
 
-/**
- * 有坐标的节点数。
- * 地图只画有坐标的，所以提示要分开说——
- * 否则用户会以为"24 个节点地图上就该有 24 个点"。
- */
-const total = computed(() => props.points.length)
-const withGeo = computed(() => projected.value.length)
-
-const hovered = ref<MapPoint | null>(null)
-
-function onEnter(p: MapPoint): void {
-  hovered.value = p
+function zoomAtCenter(factor: number): void {
+  const svg = svgRef.value
+  if (!svg) return
+  const r = svg.getBoundingClientRect()
+  zoomAt(r.left + r.width / 2, r.top + r.height / 2, factor)
 }
 
-function onLeave(): void {
-  hovered.value = null
+function zoomIn(): void {
+  zoomAtCenter(1 / 1.4)
 }
 
-// 屏幕坐标 → SVG 坐标（tooltip 定位用）
+function zoomOut(): void {
+  zoomAtCenter(1.4)
+}
+
+function resetView(): void {
+  view.value = { ...DEFAULT_VIEW }
+}
+
+// ---------- 拖动 ----------
+
+let dragStartX = 0
+let dragStartY = 0
+let dragViewX = 0
+let dragViewY = 0
+
+function onPointerDown(e: PointerEvent): void {
+  // 只响应主键与触摸
+  if (e.pointerType === 'mouse' && e.button !== 0) return
+  dragging.value = true
+  dragStartX = e.clientX
+  dragStartY = e.clientY
+  dragViewX = view.value.x
+  dragViewY = view.value.y
+  ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
+}
+
+function onPointerMove(e: PointerEvent): void {
+  if (!dragging.value) return
+  const svg = svgRef.value
+  if (!svg) return
+  const rect = svg.getBoundingClientRect()
+  if (rect.width === 0) return
+
+  // 屏幕位移换算成 viewBox 位移
+  const dx = ((e.clientX - dragStartX) / rect.width) * view.value.w
+  const dy = ((e.clientY - dragStartY) / rect.height) * view.value.h
+  view.value = { ...view.value, x: dragViewX + dx, y: dragViewY + dy }
+}
+
+function onPointerUp(e: PointerEvent): void {
+  dragging.value = false
+  const t = e.currentTarget as Element
+  if (t.hasPointerCapture?.(e.pointerId)) t.releasePointerCapture(e.pointerId)
+}
+
+// ---------- 滚轮缩放 ----------
+
+function onWheel(e: WheelEvent): void {
+  // 必须 preventDefault，否则页面会跟着一起滚
+  e.preventDefault()
+  zoomAt(e.clientX, e.clientY, e.deltaY > 0 ? 1.15 : 1 / 1.15)
+}
+
+// ---------- 触屏双指缩放 ----------
+
+const touches = new Map<number, { x: number; y: number }>()
+let pinchStartDist = 0
+let pinchStartW = 0
+
+function touchDistance(): number {
+  const pts = Array.from(touches.values())
+  if (pts.length < 2) return 0
+  const dx = pts[0]!.x - pts[1]!.x
+  const dy = pts[0]!.y - pts[1]!.y
+  return Math.hypot(dx, dy)
+}
+
+function touchMid(): { x: number; y: number } {
+  const pts = Array.from(touches.values())
+  if (pts.length < 2) return { x: 0, y: 0 }
+  return { x: (pts[0]!.x + pts[1]!.x) / 2, y: (pts[0]!.y + pts[1]!.y) / 2 }
+}
+
+function onTouchStart(e: TouchEvent): void {
+  for (const t of Array.from(e.touches)) {
+    touches.set(t.identifier, { x: t.clientX, y: t.clientY })
+  }
+  if (touches.size === 2) {
+    pinchStartDist = touchDistance()
+    pinchStartW = view.value.w
+  }
+}
+
+function onTouchMove(e: TouchEvent): void {
+  for (const t of Array.from(e.touches)) {
+    touches.set(t.identifier, { x: t.clientX, y: t.clientY })
+  }
+  if (touches.size !== 2 || pinchStartDist === 0 || pinchStartW === 0) return
+  e.preventDefault()
+
+  const dist = touchDistance()
+  if (dist === 0) return
+  // 手指张开 → 放大（viewBox 变小）
+  const targetW = pinchStartW * (pinchStartDist / dist)
+  const mid = touchMid()
+  zoomAt(mid.x, mid.y, targetW / view.value.w)
+}
+
+function onTouchEnd(e: TouchEvent): void {
+  for (const t of Array.from(e.changedTouches)) touches.delete(t.identifier)
+  if (touches.size < 2) {
+    pinchStartDist = 0
+    pinchStartW = 0
+  }
+}
+
+// ---------- tooltip ----------
+
 const tooltipStyle = computed(() => {
   if (!hovered.value || !svgRef.value) return {}
   const rect = svgRef.value.getBoundingClientRect()
-  const scaleX = rect.width / W
-  const scaleY = rect.height / H
-  return {
-    left: `${hovered.value.x * scaleX}px`,
-    top: `${hovered.value.y * scaleY}px`,
-  }
+  const sx = ((hovered.value.x - view.value.x) / view.value.w) * rect.width
+  const sy = ((hovered.value.y - view.value.y) / view.value.h) * rect.height
+  return { left: `${sx}px`, top: `${sy}px` }
 })
 
+function statusColor(status: MapPoint['status']): string {
+  switch (status) {
+    case 'online':
+    case 'up':
+      return 'var(--down)'
+    case 'offline':
+    case 'down':
+      return 'var(--critical)'
+    case 'paused':
+      return 'var(--neutral)'
+    default:
+      return 'var(--warning)'
+  }
+}
+
+const STATUS_TEXT: Record<string, string> = {
+  online: '在线',
+  offline: '离线',
+  pending: '待接入',
+  up: '正常',
+  down: '异常',
+  paused: '已暂停',
+}
+
+onBeforeUnmount(() => {
+  touches.clear()
+  pinchStartDist = 0
+  pinchStartW = 0
+})
 </script>
 
 <template>
-  <div class="world-map" :style="{ height: `${height}px` }">
-    <div class="map-hint">{{ withGeo }} / {{ total }} 个节点</div>
+  <div class="world-map" :class="{ dragging }" :style="{ height: `${height}px` }">
     <svg
       ref="svgRef"
-      :viewBox="`0 ${VIEW_Y} ${W} ${VIEW_H}`"
+      :viewBox="viewBox"
       class="map-svg"
+      preserveAspectRatio="none"
       role="img"
-      aria-label="节点世界分布图"
+      aria-label="节点世界分布图，可缩放拖动"
+      @pointerdown="onPointerDown"
+      @pointermove="onPointerMove"
+      @pointerup="onPointerUp"
+      @pointercancel="onPointerUp"
+      @wheel="onWheel"
+      @touchstart="onTouchStart"
+      @touchmove="onTouchMove"
+      @touchend="onTouchEnd"
+      @touchcancel="onTouchEnd"
     >
-      <!-- 海洋底色 -->
-      <rect :width="W" :height="H" class="map-ocean" />
+      <!-- 海洋底色。尺寸随 viewBox 变化，始终铺满当前视野 -->
+      <rect
+        :x="view.x" :y="view.y" :width="view.w" :height="view.h"
+        class="map-ocean"
+      />
 
-      <!-- 经纬网格 -->
+      <!-- 经纬网格：跟随视野重新划分，缩放后间距看起来保持一致 -->
       <g class="map-grid">
-        <line v-for="i in 5" :key="'h' + i" :x1="0" :y1="(i * H) / 6" :x2="W" :y2="(i * H) / 6" />
-        <line v-for="i in 11" :key="'v' + i" :x1="(i * W) / 12" :y1="0" :x2="(i * W) / 12" :y2="H" />
+        <template v-for="i in 9" :key="'v' + i">
+          <line
+            :x1="view.x + (view.w * i) / 9" :y1="view.y"
+            :x2="view.x + (view.w * i) / 9" :y2="view.y + view.h"
+          />
+        </template>
+        <template v-for="i in 5" :key="'h' + i">
+          <line
+            :x1="view.x" :y1="view.y + (view.h * i) / 5"
+            :x2="view.x + view.w" :y2="view.y + (view.h * i) / 5"
+          />
+        </template>
       </g>
 
       <!-- 国界 -->
@@ -209,42 +369,38 @@ const tooltipStyle = computed(() => {
           v-for="p in projected"
           :key="p.id"
           class="map-point"
-          @mouseenter="onEnter(p)"
-          @mouseleave="onLeave"
+          @mouseenter="hovered = p"
+          @mouseleave="hovered = null"
         >
-          <!-- 命中区域放大，指针更容易命中小圆点 -->
-          <circle :cx="p.x" :cy="p.y" r="10" class="point-hit" />
+          <!-- 命中区随缩放反向补偿，保证小圆点也好点 -->
+          <circle :cx="p.x" :cy="p.y" :r="hitR" class="point-hit" />
           <circle
-            :cx="p.x"
-            :cy="p.y"
-            r="4"
+            :cx="p.x" :cy="p.y" :r="dotR"
             class="point-dot"
-            :style="{ fill: dotColor(p.status) }"
+            :style="{ fill: statusColor(p.status) }"
           />
           <circle
-            :cx="p.x"
-            :cy="p.y"
-            r="7"
+            :cx="p.x" :cy="p.y" :r="ringR"
             class="point-ring"
-            :style="{ stroke: dotColor(p.status) }"
+            :style="{ stroke: statusColor(p.status) }"
           />
         </g>
       </g>
     </svg>
 
-    <!-- tooltip -->
-    <div
-      v-if="hovered"
-      class="map-tip"
-      :style="tooltipStyle"
-    >
-      <span class="tip-name">{{ hovered.name }}</span>
-      <span class="tip-status" :style="{ color: dotColor(hovered.status) }">
-        {{ { online: '在线', offline: '离线', pending: '待接入', up: '正常', down: '异常', paused: '已暂停' }[hovered.status] }}
-      </span>
+    <!-- 缩放控件 -->
+    <div class="map-controls">
+      <button class="ctl" title="放大" aria-label="放大地图" @click.stop="zoomIn">+</button>
+      <button class="ctl" title="缩小" aria-label="缩小地图" @click.stop="zoomOut">−</button>
+      <button class="ctl" title="重置视图" aria-label="重置地图视图" @click.stop="resetView">↺</button>
     </div>
 
-    <!-- 有节点缺坐标时的说明 -->
+    <!-- 缩放倍率 -->
+    <div v-if="scale > 1.05" class="map-zoom-hint">{{ scale.toFixed(1) }}×</div>
+
+    <!-- 节点统计 -->
+    <div class="map-hint">{{ withGeo }} / {{ total }} 个节点</div>
+
     <div v-if="total > withGeo" class="map-note">
       {{ total - withGeo }} 个节点暂无坐标，未在地图上显示
     </div>
@@ -260,6 +416,14 @@ const tooltipStyle = computed(() => {
         {{ l.t }}
       </span>
     </div>
+
+    <!-- tooltip -->
+    <div v-if="hovered" class="map-tip" :style="tooltipStyle">
+      <span class="tip-name">{{ hovered.name }}</span>
+      <span class="tip-status" :style="{ color: statusColor(hovered.status) }">
+        {{ STATUS_TEXT[hovered.status] }}
+      </span>
+    </div>
   </div>
 </template>
 
@@ -270,50 +434,50 @@ const tooltipStyle = computed(() => {
   border-radius: var(--radius-md);
   overflow: hidden;
   border: 1px solid var(--line-color);
-}
-
-.map-hint {
-  position: absolute;
-  top: var(--space-2);
-  left: var(--space-3);
-  font-size: var(--font-xs);
-  color: var(--text-tertiary);
-  z-index: 2;
-  pointer-events: none;
+  /* 铺满卡片宽度 */
+  width: 100%;
 }
 
 .map-svg {
   width: 100%;
   height: 100%;
   display: block;
+  cursor: grab;
+  /* 让触屏事件由 JS 处理，不被浏览器的手势识别抢走 */
+  touch-action: none;
+  /* 拖动时不要触发文本选中，鼠标操作才启用，避免影响触屏 */
+  user-select: none;
+}
+
+.world-map.dragging .map-svg {
+  cursor: grabbing;
 }
 
 .map-ocean {
-  /* 海洋比陆地略深，形成"陆地浮出水面"的层次 */
-  fill: var(--bg-surface);
+  fill: var(--bg-body);
 }
 
 .map-grid line {
   stroke: var(--line-color);
-  stroke-width: 0.3;
+  stroke-width: 0.5;
   fill: none;
+  vector-effect: non-scaling-stroke;
 }
 
 .map-country {
   /*
    * 描边用 --line-strong 而非 --line-color。
    * 后者只有 9% 不透明度，高纬度的俄罗斯与加拿大北部
-   * 会糊成一片，看着像一条横带——实际是描边看不见。
+   * 会糊成一片，看着像一条横带 —— 实际是描边看不见。
    */
   fill: var(--bg-active);
   stroke: var(--line-strong);
-  stroke-width: 0.6;
+  stroke-width: 0.8;
   stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-  transition: fill var(--duration-base) var(--ease-out);
+  /* 关掉 non-scaling-stroke：缩放时国界要跟着变粗，
+     否则放大后描边会细得看不见 */
 }
 
-/* 有节点的国家略微提亮，让区域分布一眼可辨 */
 .map-country.has-node {
   fill: var(--bg-hover);
 }
@@ -328,18 +492,14 @@ const tooltipStyle = computed(() => {
 
 .point-ring {
   fill: none;
-  stroke-width: 1;
+  stroke-width: 1.2;
   opacity: 0.45;
-  transition: opacity var(--duration-fast) var(--ease-out), r var(--duration-fast) var(--ease-out);
+  vector-effect: non-scaling-stroke;
+  transition: opacity var(--duration-fast) var(--ease-out);
 }
 
 .map-point:hover .point-ring {
   opacity: 0.9;
-  r: 9;
-}
-
-.map-point:hover .point-dot {
-  r: 5;
 }
 
 .point-hit {
@@ -347,29 +507,70 @@ const tooltipStyle = computed(() => {
   cursor: pointer;
 }
 
-.map-tip {
+/* ---- 控件 ---- */
+.map-controls {
   position: absolute;
-  transform: translate(-50%, calc(-100% - 12px));
-  background: var(--bg-elevated);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-md);
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--font-xs);
-  white-space: nowrap;
-  pointer-events: none;
-  z-index: 3;
+  top: var(--space-2);
+  right: var(--space-2);
   display: flex;
-  gap: var(--space-2);
+  flex-direction: column;
+  gap: 2px;
+  z-index: 3;
+}
+
+.ctl {
+  /* 28px 满足 24px 触控底线，比按钮稍大一点便于点按 */
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  display: flex;
   align-items: center;
-}
-
-.tip-name {
-  color: var(--text-primary);
-  font-weight: 500;
-}
-
-.tip-status {
+  justify-content: center;
+  border: 1px solid var(--line-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
   color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.ctl:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.ctl:active {
+  transform: scale(0.94);
+}
+
+.map-zoom-hint {
+  position: absolute;
+  top: var(--space-2);
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  background: var(--bg-elevated);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  z-index: 2;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.map-hint {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-3);
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  z-index: 2;
+  pointer-events: none;
 }
 
 .map-note {
@@ -392,6 +593,9 @@ const tooltipStyle = computed(() => {
   color: var(--text-secondary);
   z-index: 2;
   pointer-events: none;
+  background: var(--bg-elevated);
+  padding: 3px var(--space-2);
+  border-radius: var(--radius-full);
 }
 
 .legend-item {
@@ -405,5 +609,38 @@ const tooltipStyle = computed(() => {
   height: 6px;
   border-radius: 50%;
   display: inline-block;
+}
+
+/* ---- tooltip ---- */
+.map-tip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 10px));
+  background: var(--bg-elevated);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-xs);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 4;
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.tip-name {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.tip-status {
+  color: var(--text-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .point-dot,
+  .point-ring {
+    transition: none;
+  }
 }
 </style>

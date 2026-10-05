@@ -81,20 +81,30 @@ watch(
 </template>
 
 <style scoped>
+/*
+ * 圆形国旗。
+ *
+ * 为什么改圆：flag-icons 的 512×512 方图在方形容器里会显得方，
+ * 侧边栏和列表行里非常扎眼。圆形裁切后视觉重量更轻，
+ * 且与 StatusDot 的圆形状态点形成统一的圆角语言。
+ */
 .flag {
   display: inline-flex;
   overflow: hidden;
-  border-radius: 2px;
-  /* 1px 细边框让浅色旗帜在白底上仍有轮廓 */
-  border: 1px solid var(--line-color);
+  border-radius: 50%;
   flex-shrink: 0;
-  vertical-align: -0.15em;
+  vertical-align: -0.18em;
   background: var(--bg-hover);
+  /* 环形描边：让浅色旗帜在深浅两种背景下都有轮廓 */
+  box-shadow:
+    0 0 0 1px var(--line-color),
+    inset 0 0 0 1px var(--line-color);
 }
 
 .flag img {
   width: 100%;
   height: 100%;
+  /* 圆形裁切交给 border-radius，图片本身填满容器即可 */
   object-fit: cover;
   display: block;
 }
@@ -104,9 +114,9 @@ watch(
   align-items: center;
   justify-content: center;
   font-weight: 600;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.04em;
   line-height: 1;
 }
 </style>

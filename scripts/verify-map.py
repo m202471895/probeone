@@ -30,7 +30,9 @@ def main() -> int:
     problems = []
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page(viewport={"width": 1600, "height": 900})
+        # 视口要够高：地图在页面下方，视口太矮时它落在可视区外，
+        # 鼠标事件打不到，拖动测试会假失败。
+        page = browser.new_page(viewport={"width": 1600, "height": 1400})
         page.goto(URL)
         page.wait_for_load_state("networkidle")
         page.fill("#username", "admin")
@@ -77,7 +79,63 @@ def main() -> int:
         if worst > 1:
             problems.append(f"节点投影偏差 {worst:.1f}px")
 
-        # 3) 数量
+        # 3) 缩放与拖动
+        def vb():
+            return page.get_attribute(".map-svg", "viewBox")
+
+        v0 = vb()
+
+        # 先测缩放
+        page.click(".map-controls .ctl >> nth=0")
+        page.wait_for_timeout(300)
+        v_zoom = vb()
+        # 重置回初始视图
+        page.click(".map-controls .ctl >> nth=2")
+        page.wait_for_timeout(300)
+        v_reset = vb()
+
+        # 再测拖动。
+        # 两点注意：
+        # 1. 顺序——必须在重置之后单独测，控件点击会冒泡到 svg 触发 pointerdown
+        # 2. 先把地图滚进可视区，否则鼠标事件落不到它身上
+        page.locator(".world-map").scroll_into_view_if_needed()
+        page.wait_for_timeout(400)
+        box = page.locator(".map-svg").bounding_box()
+        cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+        page.mouse.move(cx, cy)
+        page.mouse.down()
+        page.mouse.move(cx + 150, cy + 50, steps=8)
+        page.mouse.up()
+        page.wait_for_timeout(300)
+        v_drag = vb()
+
+        mark = "✓" if v0 != v_zoom else "✗"
+        print(f"  {mark} 按钮缩放：viewBox {v0} → {v_zoom}")
+        if v0 == v_zoom:
+            problems.append("缩放按钮无效")
+
+        mark = "✓" if v_reset == v0 else "✗"
+        print(f"  {mark} 重置视图：回到 {v_reset}")
+        if v_reset != v0:
+            problems.append(f"重置未恢复初始视图（{v_reset}≠{v0}）")
+
+        mark = "✓" if v_drag != v_reset else "✗"
+        print(f"  {mark} 拖动：viewBox → {v_drag}")
+        if v_drag == v_reset:
+            problems.append("拖动无效")
+
+        # 4) 铺满容器
+        fill = page.evaluate("""()=>{
+          const wm=document.querySelector('.world-map').getBoundingClientRect();
+          const sv=document.querySelector('.map-svg').getBoundingClientRect();
+          return {dx: Math.abs(wm.width-sv.width), dy: Math.abs(wm.height-sv.height)};
+        }""")
+        mark = "✓" if fill["dx"] <= 2 and fill["dy"] <= 2 else "✗"
+        print(f"  {mark} 铺满容器：偏差 {fill['dx']:.0f}×{fill['dy']:.0f}px（应 ≤2）")
+        if fill["dx"] > 2 or fill["dy"] > 2:
+            problems.append(f"地图未铺满容器，偏差 {fill['dx']:.0f}×{fill['dy']:.0f}px")
+
+        # 5) 数量
         n_country = page.locator(".map-country").count()
         n_dot = page.locator(".point-dot").count()
         print(f"  ✓ 国界 {n_country} 条，节点 {n_dot} 个")
