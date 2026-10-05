@@ -51,15 +51,23 @@ const H = 500
  * 却占了约 1/4 画面，把北半球的有效区域压扁。
  * 把 viewBox 上移并收窄，只保留 -60..90 纬度。
  */
-const VIEW_Y = -60      // 起始纬度（负值 = 从南纬 60 度开始）
-const VIEW_H = 420      // 可见高度
+const MIN_LAT = -60     // 可见的最南纬度
+const VIEW_Y = -60      // viewBox 起始 y（与 MIN_LAT 对应）
+const VIEW_H = 420      // viewBox 高度
 
 
 const svgRef = ref<SVGSVGElement | null>(null)
 const paths = ref<Array<{ d: string; id: string }>>([])
 
-/** 经纬度 → SVG 坐标 */
-function project(lon: number, lat: number): [number, number] {
+/**
+ * 经纬度 → SVG 坐标。
+ *
+ * 南纬 60 度以下的点直接丢弃（返回 null）。
+ * 不能只靠 viewBox 裁切——被裁掉的路径仍会参与绘制，
+ * 会在边界处留下半截线条（南极洲的横线就是这么来的）。
+ */
+function project(lon: number, lat: number): [number, number] | null {
+  if (lat < MIN_LAT) return null
   const x = ((lon + 180) / 360) * W
   const y = ((90 - lat) / 180) * H
   return [x, y]
@@ -84,7 +92,7 @@ const countryPaths = computed(() => {
   // 不该让整块陆地消失——之前按 iso 过滤导致国界一条都没渲染出来。
   return fc.features
     .map((f, i) => {
-      const d = featureToPath(f, W, H)
+      const d = featureToPath(f, W, H, VIEW_Y)
       return d ? { d, iso: isoCodeOf(f) ?? '', key: featureKey(f, i) } : null
     })
     .filter((x): x is { d: string; iso: string; key: string } => x !== null)
@@ -97,10 +105,10 @@ const countryPaths = computed(() => {
 const projected = computed(() =>
   props.points
     .map((p) => {
-      const [x, y] = project(p.lon, p.lat)
-      return { ...p, x, y }
+      const xy = project(p.lon, p.lat)
+      return xy ? { ...p, x: xy[0], y: xy[1] } : null
     })
-    .filter((p) => !Number.isNaN(p.x) && !Number.isNaN(p.y)),
+    .filter((p): p is NonNullable<typeof p> => p !== null),
 )
 
 /**
@@ -281,19 +289,26 @@ const tooltipStyle = computed(() => {
 }
 
 .map-ocean {
-  fill: var(--bg-body);
+  /* 海洋比陆地略深，形成"陆地浮出水面"的层次 */
+  fill: var(--bg-surface);
 }
 
 .map-grid line {
   stroke: var(--line-color);
-  stroke-width: 0.4;
+  stroke-width: 0.3;
   fill: none;
 }
 
 .map-country {
+  /*
+   * 描边用 --line-strong 而非 --line-color。
+   * 后者只有 9% 不透明度，高纬度的俄罗斯与加拿大北部
+   * 会糊成一片，看着像一条横带——实际是描边看不见。
+   */
   fill: var(--bg-active);
-  stroke: var(--line-color);
-  stroke-width: 0.4;
+  stroke: var(--line-strong);
+  stroke-width: 0.6;
+  stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
   transition: fill var(--duration-base) var(--ease-out);
 }
