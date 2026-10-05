@@ -181,16 +181,19 @@ onMounted(async () => {
           <span class="sum-label">总内存</span>
           <span class="sum-val font-num">{{ formatBytes(nodes.totalMem) }}</span>
         </div>
+        <span class="sum-sep" aria-hidden="true" />
         <div class="sum-item">
           <span class="sum-label">总磁盘</span>
           <span class="sum-val font-num">{{ formatBytes(nodes.totalDisk) }}</span>
         </div>
+        <span class="sum-sep" aria-hidden="true" />
         <div class="sum-item">
           <span class="sum-label">在线率</span>
           <span class="sum-val font-num">
             {{ nodes.total > 0 ? formatPercent((nodes.onlineCount / nodes.total) * 100) : '—' }}
           </span>
         </div>
+        <span class="sum-sep" aria-hidden="true" />
         <div class="sum-item">
           <span class="sum-label">离线节点</span>
           <span class="sum-val font-num">{{ nodes.offlineCount }}</span>
@@ -409,29 +412,34 @@ onMounted(async () => {
 
 /* ---- 汇总 ---- */
 .summary {
-  display: grid;
   /*
-   * 等分而非 space-between：
-   * space-between 会把第一个推到最左、最后一个推到最右，
-   * 中间的间距也随之拉伸，看起来像"标签和值分属两块"。
+   * flex 横排而非 grid 均分。
+   * 之前用 grid-template-columns: repeat(4, 1fr)，
+   * 每个格子等宽，但内容长短不一时会视觉失衡
+   *（"总内存"贴左、"离线节点"贴右，中间两块浮在中间）。
+   * flex + gap 让各块按内容宽度紧邻，视觉上才是"一排相关数据"。
    */
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-5);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
 }
 
 .sum-item {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: baseline;
+  gap: var(--space-2);
   min-width: 0;
-  /* 竖线分隔相邻项，视觉上归为一组 */
-  padding-left: var(--space-5);
-  border-left: 1px solid var(--line-color);
+  white-space: nowrap;
 }
 
-.sum-item:first-child {
-  padding-left: 0;
-  border-left: none;
+/* 分隔线用独立元素而非 border-left：
+   border 会跟着 item 高度走，标签与数值同行后高度变矮，
+   竖线显得短一截。独立 span 高度由 align-items:center 统一。 */
+.sum-sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--line-color);
 }
 
 .sum-label {
@@ -440,8 +448,9 @@ onMounted(async () => {
 }
 
 .sum-val {
-  font-size: var(--font-md);
+  font-size: var(--font-base);
   font-weight: 500;
+  color: var(--text-primary);
 }
 
 .btn-primary {
