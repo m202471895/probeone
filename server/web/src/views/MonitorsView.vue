@@ -241,6 +241,22 @@ onMounted(() => void monitors.fetch())
   white-space: nowrap;
 }
 
+/*
+ * 首列与末列单独加横向内边距。
+ * 给 .table-wrap 加 padding 无效：表格是 width:100% 的块级元素，
+ * 会把容器 padding 顶开并填满，等于什么都没加。
+ * 直接在单元格上动手才有效。
+ */
+.table th:first-child,
+.table td:first-child {
+  padding-left: var(--space-4);
+}
+
+.table th:last-child,
+.table td:last-child {
+  padding-right: var(--space-4);
+}
+
 .table td {
   padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--line-color);

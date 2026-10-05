@@ -317,7 +317,8 @@ onMounted(async () => {
 
 .node-metrics {
   display: flex;
-  gap: var(--space-3);
+  gap: var(--space-5);
+  flex-wrap: wrap;
 }
 
 .metric {
@@ -325,6 +326,11 @@ onMounted(async () => {
   flex-direction: column;
   gap: 1px;
   min-width: 0;
+  /*
+   * 不加分隔线：卡片只有 190px 宽，
+   * 三个块加竖线后会换行，竖线断在半空反而更乱。
+   * 靠加大间距区分即可。
+   */
 }
 
 .metric-val {
@@ -404,8 +410,13 @@ onMounted(async () => {
 /* ---- 汇总 ---- */
 .summary {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--space-4);
+  /*
+   * 等分而非 space-between：
+   * space-between 会把第一个推到最左、最后一个推到最右，
+   * 中间的间距也随之拉伸，看起来像"标签和值分属两块"。
+   */
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-5);
 }
 
 .sum-item {
@@ -413,6 +424,14 @@ onMounted(async () => {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+  /* 竖线分隔相邻项，视觉上归为一组 */
+  padding-left: var(--space-5);
+  border-left: 1px solid var(--line-color);
+}
+
+.sum-item:first-child {
+  padding-left: 0;
+  border-left: none;
 }
 
 .sum-label {

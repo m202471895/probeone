@@ -88,10 +88,16 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '审计日志', requires: 'owner' },
   },
   {
+    // /settings 直接重定向到可见性策略——
+    // 目前 Owner 只有这一个设置页，与其显示一个空壳不如直达
     path: '/settings',
-    name: 'settings',
+    redirect: '/settings/visibility',
+  },
+  {
+    path: '/settings/visibility',
+    name: 'settings-visibility',
     component: () => import('@/views/SettingsView.vue'),
-    meta: { title: '系统设置', requires: 'owner' },
+    meta: { title: '可见性策略', requires: 'owner' },
   },
   {
     path: '/status',

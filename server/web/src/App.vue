@@ -23,6 +23,14 @@ const monitors = useMonitorStore()
 
 const connected = ref(false)
 
+/**
+ * 是否显示应用外壳（侧边栏 + 顶栏）。
+ * 登录页、公开状态页、404 都需要全屏——它们在 meta 上标了 public。
+ * 用路由 meta 判断而不是"是否登录"：已登录用户访问 404 时
+ * 同样不该看到侧边栏。
+ */
+const showShell = computed(() => auth.isLoggedIn && route.meta.public !== true)
+
 const pageTitle = computed(() => {
   const map: Record<string, string> = {
     '/': '总览',
@@ -88,8 +96,8 @@ onMounted(() => {
     写成 .app[data-v-xxx]:has(> .sidebar)，而 .sidebar 是子组件根元素、
     不带父组件的 data-v 属性，选择器永远匹配不上——规则等于没写。
   -->
-  <div class="app" :class="{ 'logged-in': auth.isLoggedIn }">
-    <template v-if="auth.isLoggedIn">
+  <div class="app" :class="{ 'logged-in': showShell }">
+    <template v-if="showShell">
       <SidebarNav />
 
       <div class="main">
