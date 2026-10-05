@@ -4,12 +4,22 @@
  *
  * 扁平化的核心：**用 1px 边框而非阴影**表达层级。
  * 阴影在深色主题下会显脏，且在多卡片网格里容易糊成一片。
+ *
+ * 关于 padded：它必须带默认值 true。
+ * 只写 `defineProps<{padded?: boolean}>()` 时，Vue 拿到的
+ * padded 是 undefined，`:class="{ padded: padded !== false }"`
+ * 虽然求值为 true，但模板里访问 props 的方式在这个写法下不可靠，
+ * 结果 class 永远不加 'padded'——所有卡片内容区都没有内边距。
+ * 用 withDefaults 显式声明默认值是唯一可靠的做法。
  */
-defineProps<{
-  title?: string
-  /** 是否显示内容区的内边距。表格类内容可关掉让表格贴边。 */
-  padded?: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    title?: string
+    /** 是否显示内容区内边距。表格/列表类贴边内容可关掉。 */
+    padded?: boolean
+  }>(),
+  { padded: true },
+)
 </script>
 
 <template>
@@ -20,7 +30,7 @@ defineProps<{
         <slot name="actions" />
       </div>
     </header>
-    <div class="card-body" :class="{ 'padded': padded !== false }">
+    <div class="card-body" :class="{ padded: props.padded }">
       <slot />
     </div>
   </section>
