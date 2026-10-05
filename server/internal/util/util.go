@@ -57,10 +57,10 @@ func RandomPassword(length int) (string, error) {
 		length = 12
 	}
 	const (
-		lower   = "abcdefghijkmnopqrstuvwxyz" // 去掉 l，易混淆
-		upper   = "ABCDEFGHJKLMNPQRSTUVWXYZ" // 去掉 O、I
-		digits  = "23456789"                // 去掉 0、1
-		all     = lower + upper + digits
+		lower  = "abcdefghijkmnopqrstuvwxyz" // 去掉 l，易混淆
+		upper  = "ABCDEFGHJKLMNPQRSTUVWXYZ"  // 去掉 O、I
+		digits = "23456789"                  // 去掉 0、1
+		all    = lower + upper + digits
 	)
 	// 先各取一个，保证类别齐全
 	out := make([]byte, 0, length)

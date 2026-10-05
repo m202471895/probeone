@@ -13,19 +13,19 @@ package visibility
 // 加入本表前请确认：泄露后是否会导致凭据泄露或资产被定位。
 var hardDeniedFields = map[string]struct{}{
 	// 凭据类
-	"agent_secret":      {},
-	"client_secret":     {},
-	"password_hash":     {},
-	"token_hash":        {},
-	"master_key":        {},
-	"session_token":     {},
+	"agent_secret":        {},
+	"client_secret":       {},
+	"password_hash":       {},
+	"token_hash":          {},
+	"master_key":          {},
+	"session_token":       {},
 	"notification_secret": {},
 	// 网络与硬件标识类：可用于定位与横向移动
 	"internal_ip": {},
 	"mac_address": {},
 	// 认证凭据，无论何种形式
 	"authorization": {},
-	"cookie":       {},
+	"cookie":        {},
 }
 
 // HardDeniedFields 返回硬禁止字段的副本（防止调用方误改内部状态）。

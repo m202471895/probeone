@@ -36,7 +36,7 @@ func WithScope(ctx context.Context, s string) context.Context {
 }
 
 // ScopeFrom 读取当前请求的脱敏范围。未设置时返回空串，表示不脱敏
-//（即已登录且具备权限的 full 路径）。
+// （即已登录且具备权限的 full 路径）。
 func ScopeFrom(ctx context.Context) string {
 	s, _ := ctx.Value(scopeKey{}).(string)
 	return s

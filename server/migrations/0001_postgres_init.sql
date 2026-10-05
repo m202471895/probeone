@@ -1,55 +1,30 @@
--- ProbeOne 初始迁移（SQLite 版）
--- 命名：0001_init.sql —— 与 PostgreSQL 版 0001_postgres_init.sql 版本号一致
---
--- 与 PostgreSQL 版的两处差异（均为类型映射，非结构差异）：
---   1. 自增主键：BIGSERIAL → INTEGER PRIMARY KEY AUTOINCREMENT
---      SQLite 只认"INTEGER PRIMARY KEY" 才隐式自增，BIGSERIAL 会被当成普通类型，
---      插入时 id 恒为 NULL/0。这是踩过的坑，不要改回去。
---   2. 时间类型：TIMESTAMPTZ → TIMESTAMP
---      驱动参数 _time_format=sqlite 只对 SQLite 原生的 TIMESTAMP/DATETIME
---      类型名生效，会把列值直接扫描为 time.Time。写 TIMESTAMPTZ 会被驱动
---      当成未知类型，扫描时返回字符串并报
---      "unsupported Scan, storing driver.Value type string into type *time.Time"。
---      代价是丢掉时区信息，因此应用层统一用 sqlbase.Now() 写 UTC。
---   3. 默认值：now() → CURRENT_TIMESTAMP
---      SQLite 的 DEFAULT 只接受常量字面量，不接受函数调用。
--- 除此之外表结构、索引、约束、初始数据完全一致。
--- 维护要求：任何 schema 变更必须同时改这两个文件，且版本号保持相同。
+-- ProbeOne 初始迁移
+-- 命名：0001_init.sql
 -- 约定：所有变更都通过新增迁移文件实现，不修改已发布的迁移。
 --       PostgreSQL 与 SQLite 需各自维护一份，SQLite 版本做类型映射。
 
--- SQLite 版本迁移。
---
--- 与 PostgreSQL 版的唯一差异：DDL 默认值。
--- PostgreSQL 支持 DEFAULT CURRENT_TIMESTAMP，SQLite 的 DEFAULT 只能是常量字面量，
--- 函数调用要写成 CURRENT_TIMESTAMP。因此凡DDL 里的 now() 都换成 CURRENT_TIMESTAMP。
--- 应用层写入时仍统一走 sqlbase.Now()，不依赖数据库的默认值。
---
--- 0001_postgres_init.sql 与本文件保持表结构一致——
--- 任何 schema 变更都必须同时改两个文件并保持版本号相同。
-
 -- ============ 用户与鉴权 ============
 CREATE TABLE IF NOT EXISTS users (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    id            BIGSERIAL PRIMARY KEY,
     username      VARCHAR(64)  NOT NULL,
     email         VARCHAR(255),
     password_hash VARCHAR(255) NOT NULL,
     role          VARCHAR(16)  NOT NULL DEFAULT 'viewer',
     status        VARCHAR(16)  NOT NULL DEFAULT 'active',
-    created_at    TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at    TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(lower(username));
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(lower(email)) WHERE email IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS sessions (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    id         BIGSERIAL PRIMARY KEY,
     user_id    BIGINT      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     token_hash VARCHAR(128) NOT NULL,
     ip         VARCHAR(45),
     user_agent VARCHAR(255),
-    expires_at TIMESTAMP NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token_hash);
 CREATE INDEX IF NOT EXISTS idx_sessions_expire ON sessions(expires_at);
@@ -57,16 +32,16 @@ CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
 
 -- ============ 节点分组 ============
 CREATE TABLE IF NOT EXISTS node_groups (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    id         BIGSERIAL PRIMARY KEY,
     name       VARCHAR(64) NOT NULL,
     sort       INTEGER      NOT NULL DEFAULT 0,
-    created_at TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_name ON node_groups(name);
 
 -- ============ 节点 ============
 CREATE TABLE IF NOT EXISTS nodes (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    id             BIGSERIAL PRIMARY KEY,
     uid            VARCHAR(64) UNIQUE NOT NULL,
     name           VARCHAR(128) NOT NULL,
     group_id       BIGINT REFERENCES node_groups(id) ON DELETE SET NULL,
@@ -85,21 +60,21 @@ CREATE TABLE IF NOT EXISTS nodes (
     mem_total           BIGINT,
     disk_info           JSONB,
     hardware_fp         VARCHAR(32),
-    hardware_changed_at TIMESTAMP,
+    hardware_changed_at TIMESTAMPTZ,
 
     -- C 类·运行时环境（每轮覆盖）
-    boot_time      TIMESTAMP,
+    boot_time      TIMESTAMPTZ,
     public_ip      VARCHAR(45),
     geo_country    VARCHAR(8),
     geo_city       VARCHAR(64),
-    last_seen_at   TIMESTAMP,
-    last_report_at TIMESTAMP,
+    last_seen_at   TIMESTAMPTZ,
+    last_report_at TIMESTAMPTZ,
 
     status     VARCHAR(16) NOT NULL DEFAULT 'pending',
     remark     VARCHAR(255),
     is_public  BOOLEAN     NOT NULL DEFAULT false,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_nodes_group ON nodes(group_id);
 CREATE INDEX IF NOT EXISTS idx_nodes_status ON nodes(status);
@@ -108,9 +83,9 @@ CREATE INDEX IF NOT EXISTS idx_nodes_public ON nodes(is_public, status);
 
 -- ============ 时序指标 ============
 CREATE TABLE IF NOT EXISTS node_metrics (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    id             BIGSERIAL PRIMARY KEY,
     node_id        BIGINT      NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
-    collected_at   TIMESTAMP NOT NULL,
+    collected_at   TIMESTAMPTZ NOT NULL,
     cpu_usage      REAL,
     cpu_cores      JSONB,
     mem_total      BIGINT,
@@ -128,17 +103,17 @@ CREATE TABLE IF NOT EXISTS node_metrics (
     disk_io        JSONB,
     net_io         JSONB,
     sensors        JSONB,
-    created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_metrics_node_time ON node_metrics(node_id, collected_at DESC);
 CREATE INDEX IF NOT EXISTS idx_metrics_time ON node_metrics(collected_at);
 
 -- 预聚合表：避免大范围查询扫原始数据（PRD 8.5）
 CREATE TABLE IF NOT EXISTS node_metrics_rollup (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    id            BIGSERIAL PRIMARY KEY,
     node_id       BIGINT      NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
     bucket        VARCHAR(8)  NOT NULL,
-    bucket_at     TIMESTAMP NOT NULL,
+    bucket_at     TIMESTAMPTZ NOT NULL,
     sample_count  INTEGER     NOT NULL DEFAULT 0,
     cpu_avg       REAL,
     cpu_max       REAL,
@@ -156,7 +131,7 @@ CREATE INDEX IF NOT EXISTS idx_rollup_node_time ON node_metrics_rollup(node_id, 
 
 -- ============ 网站监控 ============
 CREATE TABLE IF NOT EXISTS monitors (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    id              BIGSERIAL PRIMARY KEY,
     name            VARCHAR(128) NOT NULL,
     type            VARCHAR(16)  NOT NULL,
     target          VARCHAR(512) NOT NULL,
@@ -167,20 +142,20 @@ CREATE TABLE IF NOT EXISTS monitors (
     status          VARCHAR(16)  NOT NULL DEFAULT 'pending',
     is_public       BOOLEAN      NOT NULL DEFAULT true,
     sort            INTEGER      NOT NULL DEFAULT 0,
-    last_checked_at TIMESTAMP,
+    last_checked_at TIMESTAMPTZ,
     uptime_30d      REAL,
     avg_latency_ms  INTEGER,
-    created_at      TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_monitors_status ON monitors(status);
 CREATE INDEX IF NOT EXISTS idx_monitors_group ON monitors(group_id);
 CREATE INDEX IF NOT EXISTS idx_monitors_type ON monitors(type);
 
 CREATE TABLE IF NOT EXISTS monitor_results (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    id           BIGSERIAL PRIMARY KEY,
     monitor_id   BIGINT      NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
-    checked_at   TIMESTAMP NOT NULL,
+    checked_at   TIMESTAMPTZ NOT NULL,
     ok           BOOLEAN     NOT NULL,
     reason       VARCHAR(32),
     status_code  INTEGER,
@@ -199,25 +174,25 @@ CREATE TABLE IF NOT EXISTS ssl_certificates (
     subject          VARCHAR(255),
     issuer           VARCHAR(255),
     serial           VARCHAR(64),
-    not_before       TIMESTAMP,
-    not_after        TIMESTAMP,
+    not_before       TIMESTAMPTZ,
+    not_after        TIMESTAMPTZ,
     days_left        INTEGER,
     fingerprint      VARCHAR(128),
-    last_checked_at  TIMESTAMP
+    last_checked_at  TIMESTAMPTZ
 );
 
 -- ============ 告警 ============
 CREATE TABLE IF NOT EXISTS alert_channels (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    id         BIGSERIAL PRIMARY KEY,
     name       VARCHAR(64) NOT NULL,
     type       VARCHAR(32) NOT NULL,
     config     JSONB       NOT NULL,
     enabled    BOOLEAN     NOT NULL DEFAULT true,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS alert_rules (
-    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    id                BIGSERIAL PRIMARY KEY,
     name              VARCHAR(128) NOT NULL,
     target_type       VARCHAR(16)  NOT NULL,
     target_id         BIGINT,
@@ -227,13 +202,13 @@ CREATE TABLE IF NOT EXISTS alert_rules (
     channel_ids       JSONB        NOT NULL,
     dedup_window_sec  INTEGER      NOT NULL DEFAULT 1800,
     enabled           BOOLEAN      NOT NULL DEFAULT true,
-    created_at        TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at        TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_rules_enabled ON alert_rules(enabled);
 CREATE INDEX IF NOT EXISTS idx_rules_target ON alert_rules(target_type, target_id);
 
 CREATE TABLE IF NOT EXISTS alert_events (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    id              BIGSERIAL PRIMARY KEY,
     rule_id         BIGINT REFERENCES alert_rules(id) ON DELETE SET NULL,
     target_type     VARCHAR(16)  NOT NULL,
     target_id       BIGINT,
@@ -243,10 +218,10 @@ CREATE TABLE IF NOT EXISTS alert_events (
     message         TEXT,
     payload         JSONB,
     notified        BOOLEAN      NOT NULL DEFAULT false,
-    first_fired_at  TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_fired_at   TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    resolved_at     TIMESTAMP,
-    acked_at        TIMESTAMP,
+    first_fired_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    last_fired_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    resolved_at     TIMESTAMPTZ,
+    acked_at        TIMESTAMPTZ,
     acked_by        BIGINT REFERENCES users(id)
 );
 CREATE INDEX IF NOT EXISTS idx_events_status_time ON alert_events(status, last_fired_at DESC);
@@ -255,35 +230,35 @@ CREATE INDEX IF NOT EXISTS idx_events_dedup ON alert_events(rule_id, target_id, 
 
 -- 登录失败计数：暴力破解防护
 CREATE TABLE IF NOT EXISTS login_attempts (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    id          BIGSERIAL PRIMARY KEY,
     identifier  VARCHAR(128) NOT NULL,
     ip          VARCHAR(45)  NOT NULL,
     success     BOOLEAN      NOT NULL,
-    created_at  TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_attempts_lookup ON login_attempts(identifier, ip, created_at DESC);
 
 -- Agent 握手失败计数：按 uuid + IP 维度（PRD 7.3）
 CREATE TABLE IF NOT EXISTS agent_failures (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    id         BIGSERIAL PRIMARY KEY,
     client_uuid VARCHAR(64) NOT NULL,
     ip          VARCHAR(45) NOT NULL,
     count       INTEGER     NOT NULL DEFAULT 0,
     hard_locked BOOLEAN     NOT NULL DEFAULT false,
-    locked_until TIMESTAMP,
-    updated_at TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP
+    locked_until TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_failures_key ON agent_failures(client_uuid, ip);
 CREATE INDEX IF NOT EXISTS idx_agent_failures_lock ON agent_failures(hard_locked, locked_until);
 
 -- Agent 会话：session_id 短期有效，同 uuid 重复握手时旧 session 立即失效
 CREATE TABLE IF NOT EXISTS agent_sessions (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    id           BIGSERIAL PRIMARY KEY,
     session_id   VARCHAR(64) UNIQUE NOT NULL,
     node_id      BIGINT      NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
     ip           VARCHAR(45),
-    created_at   TIMESTAMP  NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    expires_at   TIMESTAMP  NOT NULL
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    expires_at   TIMESTAMPTZ  NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_node ON agent_sessions(node_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_expire ON agent_sessions(expires_at);
@@ -292,7 +267,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_expire ON agent_sessions(expires_at);
 -- 控制"哪些字段在免鉴权状态页/公开接口中可见"。
 -- 任何对未认证请求者返回数据的接口，都必须经过此表的过滤（PRD 3.6）。
 CREATE TABLE IF NOT EXISTS visibility_policies (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    id         BIGSERIAL PRIMARY KEY,
     scope      VARCHAR(16) NOT NULL,
     field      VARCHAR(64) NOT NULL,
     visible    BOOLEAN     NOT NULL DEFAULT false,
@@ -333,11 +308,11 @@ ON CONFLICT (scope, field) DO NOTHING;
 CREATE TABLE IF NOT EXISTS settings (
     key        VARCHAR(64) PRIMARY KEY,
     value      JSONB       NOT NULL,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS audit_logs (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    id          BIGSERIAL PRIMARY KEY,
     user_id     BIGINT REFERENCES users(id) ON DELETE SET NULL,
     username    VARCHAR(64),
     action      VARCHAR(64) NOT NULL,
@@ -346,7 +321,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     detail      JSONB,
     ip          VARCHAR(45),
     user_agent  VARCHAR(255),
-    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_logs(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id, created_at DESC);

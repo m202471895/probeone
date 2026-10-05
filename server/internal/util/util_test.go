@@ -162,7 +162,7 @@ func TestClientIP(t *testing.T) {
 		why        string
 	}{
 		{
-			name: "无反代时忽略 XFF",
+			name:       "无反代时忽略 XFF",
 			remoteAddr: "203.0.113.9:1234",
 			xff:        "1.2.3.4",
 			trusted:    nil,

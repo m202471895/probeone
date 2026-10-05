@@ -4,6 +4,7 @@
 //   - 不写入除自身配置目录与日志之外的任何文件
 //   - 不监听任何端口
 //   - 不读取监控无关的文件
+//
 // 因此配置项刻意做得很小：Agent 只需要知道"连哪、拿什么身份、采什么、多久一次"。
 package config
 
@@ -28,12 +29,12 @@ type Config struct {
 }
 
 type Server struct {
-	Addr                   string `yaml:"addr"`
-	CAFile                 string `yaml:"ca_file"`
-	CertFile               string `yaml:"cert_file"`
-	KeyFile                string `yaml:"key_file"`
-	ServerCertFingerprint  string `yaml:"server_cert_fingerprint"`
-	InsecureSkipVerify     bool   `yaml:"insecure_skip_verify"`
+	Addr                  string `yaml:"addr"`
+	CAFile                string `yaml:"ca_file"`
+	CertFile              string `yaml:"cert_file"`
+	KeyFile               string `yaml:"key_file"`
+	ServerCertFingerprint string `yaml:"server_cert_fingerprint"`
+	InsecureSkipVerify    bool   `yaml:"insecure_skip_verify"`
 }
 
 type Auth struct {
@@ -48,9 +49,9 @@ type Collect struct {
 }
 
 type Network struct {
-	DialTimeoutSec     int    `yaml:"dial_timeout_sec"`
-	KeepaliveSec       int    `yaml:"keepalive_sec"`
-	PublicIPLookup     string `yaml:"public_ip_lookup"`
+	DialTimeoutSec int    `yaml:"dial_timeout_sec"`
+	KeepaliveSec   int    `yaml:"keepalive_sec"`
+	PublicIPLookup string `yaml:"public_ip_lookup"`
 }
 
 type Buffer struct {

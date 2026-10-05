@@ -16,10 +16,10 @@
 
 以 [nezhahq/nezha](https://github.com/nezhahq/nezha)（10.3k star）为例，它的 Agent 支持三类任务：
 
-| 任务类型 | ID | 能力 |
-|---|---|---|
-| Command | 4 | 任意命令执行 |
-| Terminal | 8 | 交互式终端（PTY） |
+| 任务类型         | ID | 能力            |
+| ------------ | -- | ------------- |
+| Command      | 4  | 任意命令执行        |
+| Terminal     | 8  | 交互式终端（PTY）    |
 | File Manager | 11 | 文件浏览、上传、下载、删除 |
 
 [Ontinue 的安全研究](https://www.ontinue.com/resource/nezha-the-monitoring-tool-thats-also-a-perfect-rat/) 披露了这个设计的代价：攻击者用上述任务可获得 root / NT AUTHORITY\SYSTEM shell，**而该二进制在 72 家杀毒厂商处检出率为零**。原因很清晰——
@@ -52,12 +52,12 @@
 
 ## 与主流项目的差异
 
-| 项目 | 定位 | 差异 |
-|---|---|---|
-| [nezha](https://github.com/nezhahq/nezha) | 探针 + 运维（Web 终端、计划任务） | nezha 有命令下发能力；ProbeOne 从协议层移除 |
-| [beszel](https://github.com/henrygd/beszel) | 轻量服务器监控 | beszel 指标边界克制（值得学）；ProbeOne 额外做网站监控与升配感知 |
-| [Uptime Kuma](https://github.com/louislam/uptime-kuma) | 网站可用性监控 | Uptime Kuma 只管网站；ProbeOne 把服务器与网站合到一处 |
-| [netdata](https://github.com/netdata/netdata) | 深度可观测 | netdata 每节点 100–350MB；ProbeOne 单二进制无依赖 |
+| 项目                                                     | 定位                   | 差异                                       |
+| ------------------------------------------------------ | -------------------- | ---------------------------------------- |
+| [nezha](https://github.com/nezhahq/nezha)              | 探针 + 运维（Web 终端、计划任务） | nezha 有命令下发能力；ProbeOne 从协议层移除            |
+| [beszel](https://github.com/henrygd/beszel)            | 轻量服务器监控              | beszel 指标边界克制（值得学）；ProbeOne 额外做网站监控与升配感知 |
+| [Uptime Kuma](https://github.com/louislam/uptime-kuma) | 网站可用性监控              | Uptime Kuma 只管网站；ProbeOne 把服务器与网站合到一处    |
+| [netdata](https://github.com/netdata/netdata)          | 深度可观测                | netdata 每节点 100–350MB；ProbeOne 单二进制无依赖   |
 
 不做贬低比较——上述项目都值得借鉴，ProbeOne 只是选了不同的安全边界。
 
@@ -133,15 +133,15 @@ Agent 支持 Linux（amd64/arm64）、macOS、Windows。
 
 完整说明见 [docs/security.md](docs/security.md)。
 
-| 威胁 | 防护 |
-|---|---|
-| 服务端被攻破 | Agent 通道无命令下发能力，无法远程控制节点 |
+| 威胁         | 防护                                 |
+| ---------- | ---------------------------------- |
+| 服务端被攻破     | Agent 通道无命令下发能力，无法远程控制节点           |
 | Agent 密钥泄露 | 每节点独立密钥、argon2id、失败锁定、session 短有效期 |
-| 中间人 | 强制 TLS，可选 mTLS 与证书 pin |
-| Web 端越权 | 全部接口鉴权 + RBAC，按分组过滤 |
-| 字段泄露 | 非登录态强制过脱敏层，DTO 不含敏感字段，兜底中间件扫描 |
-| 资产侧信道 | 状态页排除离线节点，避免"是否出现"反推隐藏资产 |
-| SSRF | 默认禁止监控内网保留段 |
+| 中间人        | 强制 TLS，可选 mTLS 与证书 pin             |
+| Web 端越权    | 全部接口鉴权 + RBAC，按分组过滤                |
+| 字段泄露       | 非登录态强制过脱敏层，DTO 不含敏感字段，兜底中间件扫描      |
+| 资产侧信道      | 状态页排除离线节点，避免"是否出现"反推隐藏资产           |
+| SSRF       | 默认禁止监控内网保留段                        |
 
 ## 开发
 

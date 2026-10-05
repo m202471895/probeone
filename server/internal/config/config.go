@@ -20,14 +20,14 @@ import (
 
 // Config 是服务端的完整配置。
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	Agent    AgentServerConfig
-	Collector CollectorConfig
-	Alert    AlertConfig
-	Security SecurityConfig
-	Log      LogConfig
-	Storage  StorageConfig
+	Server     ServerConfig
+	Database   DatabaseConfig
+	Agent      AgentServerConfig
+	Collector  CollectorConfig
+	Alert      AlertConfig
+	Security   SecurityConfig
+	Log        LogConfig
+	Storage    StorageConfig
 	Visibility VisibilityConfig
 }
 
@@ -45,30 +45,30 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	Driver string // sqlite | postgres
-	Path   string
-	DSN    string
+	Driver          string // sqlite | postgres
+	Path            string
+	DSN             string
 	MaxOpenConns    int
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
 }
 
 type AgentServerConfig struct {
-	HandshakeTimeout     time.Duration
+	HandshakeTimeout      time.Duration
 	MaxFailuresBeforeLock int
-	LockDuration         time.Duration
-	HardLockAfter        int
-	HardLockHours        int
+	LockDuration          time.Duration
+	HardLockAfter         int
+	HardLockHours         int
 	DefaultReportInterval time.Duration
 	DefaultHeartbeat      time.Duration
 	SessionTTLMultiplier  int
 }
 
 type CollectorConfig struct {
-	WebInterval     time.Duration
-	OfflineGrace    time.Duration
-	RollupInterval  time.Duration
-	RawRetention    time.Duration
+	WebInterval       time.Duration
+	OfflineGrace      time.Duration
+	RollupInterval    time.Duration
+	RawRetention      time.Duration
 	Rollup1mRetention time.Duration
 	Rollup1hRetention time.Duration
 	MonitorRetention  time.Duration
@@ -76,19 +76,19 @@ type CollectorConfig struct {
 }
 
 type AlertConfig struct {
-	DedupWindow        time.Duration
-	StormThreshold     int
-	StormSilence       time.Duration
-	MaxQueueSize       int
+	DedupWindow    time.Duration
+	StormThreshold int
+	StormSilence   time.Duration
+	MaxQueueSize   int
 }
 
 type SecurityConfig struct {
-	MasterKey          string
-	AllowRegistration  bool
-	PasswordMinLength  int
-	MaxLoginFailures   int
-	LoginLockMinutes   int
-	CookieSecure       bool
+	MasterKey         string
+	AllowRegistration bool
+	PasswordMinLength int
+	MaxLoginFailures  int
+	LoginLockMinutes  int
+	CookieSecure      bool
 }
 
 type LogConfig struct {

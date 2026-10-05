@@ -48,12 +48,12 @@ func TestApply_PublicStatus(t *testing.T) {
 	e := newTestEngine(t)
 
 	in := map[string]any{
-		"name":       "hk-node-01",
-		"public_ip":  "203.0.113.42",
-		"cpu_model":  "AMD EPYC 7543",
-		"mem_total":  int64(8589934592),
-		"hostname":   "prod-web-01",
-		"unknown_f":  "无策略字段",
+		"name":      "hk-node-01",
+		"public_ip": "203.0.113.42",
+		"cpu_model": "AMD EPYC 7543",
+		"mem_total": int64(8589934592),
+		"hostname":  "prod-web-01",
+		"unknown_f": "无策略字段",
 	}
 
 	got := e.Apply(model.ScopePublicStatus, in).Fields

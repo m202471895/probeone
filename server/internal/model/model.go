@@ -75,13 +75,14 @@ const (
 // Node 是被监控的节点。
 //
 // 字段按PRD 3.1.2 的 A/B/C 三类组织：
-//   A 类身份信息  不可变
-//   B 类硬件规格  可随升配变化，每轮UPSERT
-//   C 类运行时    每轮覆盖
+//
+//	A 类身份信息  不可变
+//	B 类硬件规格  可随升配变化，每轮UPSERT
+//	C 类运行时    每轮覆盖
 type Node struct {
-	ID     int64
-	UID    string // 对外暴露的 ID
-	Name   string
+	ID      int64
+	UID     string // 对外暴露的 ID
+	Name    string
 	GroupID *int64
 
 	// A 类·身份信息
@@ -92,19 +93,19 @@ type Node struct {
 	AgentVersion string
 
 	// B 类·硬件规格
-	CPUModel           string
-	CPUCores           int
-	MemTotal           int64
-	DiskInfo           []DiskInfo // 内部结构含 device，公开时必须剔除
-	HardwareFP         string
-	HardwareChangedAt  *time.Time
+	CPUModel          string
+	CPUCores          int
+	MemTotal          int64
+	DiskInfo          []DiskInfo // 内部结构含 device，公开时必须剔除
+	HardwareFP        string
+	HardwareChangedAt *time.Time
 
 	// C 类·运行时环境
-	BootTime    *time.Time
-	PublicIP    string
-	GeoCountry  string
-	GeoCity     string
-	LastSeenAt  *time.Time
+	BootTime     *time.Time
+	PublicIP     string
+	GeoCountry   string
+	GeoCity      string
+	LastSeenAt   *time.Time
 	LastReportAt *time.Time
 
 	// 管理字段
@@ -119,11 +120,11 @@ type Node struct {
 // DiskInfo 是磁盘信息。
 // Device/Label/UUID 在公开响应中必须被剔除（PRD 3.6.2）。
 type DiskInfo struct {
-	Device string `json:"device"`
-	Mount  string `json:"mount"`
-	FSType string `json:"fstype"`
-	Total  int64  `json:"total"`
-	Used   int64  `json:"used"`
+	Device string  `json:"device"`
+	Mount  string  `json:"mount"`
+	FSType string  `json:"fstype"`
+	Total  int64   `json:"total"`
+	Used   int64   `json:"used"`
 	Usage  float64 `json:"usage"`
 }
 
@@ -187,13 +188,13 @@ type Monitor struct {
 // MonitorConfig 是各探针类型的私有配置。
 type MonitorConfig struct {
 	// HTTP
-	Method         string   `json:"method,omitempty"`
+	Method         string            `json:"method,omitempty"`
 	Headers        map[string]string `json:"headers,omitempty"`
-	ExpectStatus   []int    `json:"expect_status,omitempty"`
-	ExpectKeywords []string `json:"expect_keywords,omitempty"`
+	ExpectStatus   []int             `json:"expect_status,omitempty"`
+	ExpectKeywords []string          `json:"expect_keywords,omitempty"`
 	// TCP / DNS
 	Port     int    `json:"port,omitempty"`
-	Record   string `json:"record,omitempty"`// dns 记录类型
+	Record   string `json:"record,omitempty"` // dns 记录类型
 	Resolver string `json:"resolver,omitempty"`
 	// 阈值
 	MaxLatencyMs int `json:"max_latency_ms,omitempty"`
@@ -219,15 +220,15 @@ type MonitorResult struct {
 
 // SSLCertificate 是证书信息。
 type SSLCertificate struct {
-	MonitorID      int64
-	Subject        string
-	Issuer         string
-	Serial         string
-	NotBefore      *time.Time
-	NotAfter       *time.Time
-	DaysLeft       *int
-	Fingerprint    string
-	LastCheckedAt  *time.Time
+	MonitorID     int64
+	Subject       string
+	Issuer        string
+	Serial        string
+	NotBefore     *time.Time
+	NotAfter      *time.Time
+	DaysLeft      *int
+	Fingerprint   string
+	LastCheckedAt *time.Time
 }
 
 // ChannelType 是通知通道类型（PRD 3.3）。
@@ -274,25 +275,25 @@ const (
 
 // AlertRule 是告警规则。
 type AlertRule struct {
-	ID              int64
-	Name            string
-	TargetType      AlertTargetType
-	TargetID        *int64 // nil 表示匹配全部
-	Metric          string
-	Condition       RuleCondition
-	Severity        Severity
-	ChannelIDs      []int64
-	DedupWindowSec  int
-	Enabled         bool
-	CreatedAt       time.Time
+	ID             int64
+	Name           string
+	TargetType     AlertTargetType
+	TargetID       *int64 // nil 表示匹配全部
+	Metric         string
+	Condition      RuleCondition
+	Severity       Severity
+	ChannelIDs     []int64
+	DedupWindowSec int
+	Enabled        bool
+	CreatedAt      time.Time
 }
 
 // RuleCondition 是规则条件。
 type RuleCondition struct {
-	Op          string  `json:"op"`           // > >= < <= == !=
-	Value       float64 `json:"value"`
-	ForTimes    int     `json:"for_times"`    // 连续满足次数
-	ForMinutes  int     `json:"for_minutes"`  // 持续分钟数
+	Op         string  `json:"op"` // > >= < <= == !=
+	Value      float64 `json:"value"`
+	ForTimes   int     `json:"for_times"`   // 连续满足次数
+	ForMinutes int     `json:"for_minutes"` // 持续分钟数
 }
 
 // EventStatus 是告警事件状态。
@@ -306,15 +307,19 @@ const (
 
 // AlertEvent 是告警事件。
 type AlertEvent struct {
-	ID           int64
-	RuleID       *int64
-	TargetType   AlertTargetType
-	TargetID     *int64
-	TargetName   string
-	Severity     Severity
-	Status       EventStatus
-	Message      string
-	Payload      map[string]any
+	ID         int64
+	RuleID     *int64
+	TargetType AlertTargetType
+	TargetID   *int64
+	TargetName string
+	Severity   Severity
+	Status     EventStatus
+	Message    string
+	Payload    map[string]any
+	// Notified 标记该事件是否已发出通知。
+	// 防风暴静默期内创建的事件仍写入库，但保持 false，
+	// 静默结束时才发一条汇总（PRD 8.6）。
+	Notified     bool
 	FirstFiredAt time.Time
 	LastFiredAt  time.Time
 	ResolvedAt   *time.Time
