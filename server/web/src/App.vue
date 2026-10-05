@@ -82,7 +82,13 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="app">
+  <!--
+    logged-in 类名是显式的，不依赖 :has()。
+    之前用 .app:has(> .sidebar) 判定，但 Vue 的 scoped 编译会把属性选择器
+    写成 .app[data-v-xxx]:has(> .sidebar)，而 .sidebar 是子组件根元素、
+    不带父组件的 data-v 属性，选择器永远匹配不上——规则等于没写。
+  -->
+  <div class="app" :class="{ 'logged-in': auth.isLoggedIn }">
     <template v-if="auth.isLoggedIn">
       <SidebarNav />
 
@@ -145,9 +151,13 @@ onMounted(() => {
 
 <style scoped>
 .app {
-  display: flex;
+  /* 未登录时保持 block —— 登录页/状态页/404 需要它自己控制水平方向 */
   min-height: 100vh;
   background: var(--bg-body);
+}
+
+.app.logged-in {
+  display: flex;
 }
 
 .main {

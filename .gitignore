@@ -44,3 +44,6 @@ Thumbs.db
 # ---- 日志 ----
 *.log
 logs/
+
+# UI 验证脚本的输出
+/tmp-screenshots/

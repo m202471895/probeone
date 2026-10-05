@@ -42,3 +42,14 @@ window.addEventListener('error', (evt) => {
 })
 
 app.mount('#app')
+
+// 移除首屏加载层。
+// 它只在挂载前存在，作用是遮住"JS 还没执行完"的那几毫秒；
+// 挂载完成后必须移除，否则会一直盖在页面上（position: fixed），
+// 表现为「页面一直在加载」。
+const boot = document.getElementById('app-boot')
+if (boot) {
+  // 先淡出再移除，避免硬跳变
+  boot.style.opacity = '0'
+  window.setTimeout(() => boot.remove(), 200)
+}
