@@ -163,6 +163,15 @@ const (
 	ReasonContentMismatch FailReason = "content_mismatch"
 	ReasonSlow            FailReason = "slow"
 	ReasonUnknown         FailReason = "unknown"
+	// 以下三个是 P4 网站监控新增。
+	// 区分它们的理由：三者都是"失败"，但排障方向完全不同——
+	// Blocked 是配置问题（SSRF 防护），
+	// BadRequest 是配置写错了，
+	// TLSExpired / CertExpiring 是证书生命周期问题需要提前处理。
+	ReasonBlocked      FailReason = "blocked"
+	ReasonBadRequest   FailReason = "bad_request"
+	ReasonTLSExpired   FailReason = "tls_expired"
+	ReasonCertExpiring FailReason = "cert_expiring"
 )
 
 // Monitor 是网站监控对象。
@@ -192,10 +201,12 @@ type MonitorConfig struct {
 	Headers        map[string]string `json:"headers,omitempty"`
 	ExpectStatus   []int             `json:"expect_status,omitempty"`
 	ExpectKeywords []string          `json:"expect_keywords,omitempty"`
-	// TCP / DNS
-	Port     int    `json:"port,omitempty"`
-	Record   string `json:"record,omitempty"` // dns 记录类型
-	Resolver string `json:"resolver,omitempty"`
+	// TCP
+	Port int `json:"port,omitempty"`
+	// DNS
+	Record    string   `json:"record,omitempty"` // 记录类型 A/AAAA/CNAME
+	Resolver  string   `json:"resolver,omitempty"`
+	ExpectIPs []string `json:"expect_ips,omitempty"`
 	// 阈值
 	MaxLatencyMs int `json:"max_latency_ms,omitempty"`
 	// SSL
