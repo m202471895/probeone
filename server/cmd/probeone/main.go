@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/m202471895/probeone/server/internal/alert"
+	"github.com/m202471895/probeone/server/internal/collector"
 	"github.com/m202471895/probeone/server/internal/config"
 	"github.com/m202471895/probeone/server/internal/grpcsvc"
 	"github.com/m202471895/probeone/server/internal/httpapi"
@@ -31,8 +32,8 @@ import (
 	httpvis "github.com/m202471895/probeone/server/internal/httpapi/visibility"
 	"github.com/m202471895/probeone/server/internal/logging"
 	"github.com/m202471895/probeone/server/internal/migrate"
-	"github.com/m202471895/probeone/server/internal/monitor"
 	"github.com/m202471895/probeone/server/internal/model"
+	"github.com/m202471895/probeone/server/internal/monitor"
 	"github.com/m202471895/probeone/server/internal/notify"
 	"github.com/m202471895/probeone/server/internal/store"
 	"github.com/m202471895/probeone/server/internal/store/postgres"
@@ -143,6 +144,23 @@ func run() error {
 		}
 	}()
 
+	// ---------- 6.5 后台任务 ----------
+	// 调度器启动了 7 个周期任务：网站探测、证书检查、节点离线判定、
+	// 数据预聚合、过期数据清理、过期会话清理、告警静默汇总。
+	//
+	// 用 ctx 绑生命周期而不是 Stop()：ctx 取消时所有任务一起退出，
+	// 停机流程只剩一步，不用维护第二套停止机制。
+	scheduler := collector.New(cfg, db, log, alertEngine)
+	schedDone := make(chan struct{})
+	go func() {
+		defer close(schedDone)
+		scheduler.Run(ctx)
+	}()
+	log.Info("后台任务已启动",
+		slog.Duration("探测间隔", cfg.Collector.WebInterval),
+		slog.Duration("离线判定间隔", cfg.Collector.OfflineGrace/2),
+		slog.Duration("预聚合间隔", cfg.Collector.RollupInterval))
+
 	// ---------- 7. HTTP ----------
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Server.HTTPPort),
@@ -178,6 +196,16 @@ func run() error {
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("HTTP 优雅停机失败: %w", err)
+	}
+
+	// 等后台任务收尾。它们都是短周期的（最长的证书检查也只是每轮结束就返回），
+	// 15 秒足够全部退出。超时则记日志继续——
+	// 不能因为后台任务不肯退就卡住整个停机。
+	select {
+	case <-schedDone:
+		log.Info("后台任务已全部退出")
+	case <-shutdownCtx.Done():
+		log.Warn("后台任务未在超时内退出，强制结束")
 	}
 	// 告警引擎没有后台循环（Evaluate 由采集器调用，
 	// FlushSummaries 需要外部定时触发），因此无需显式停止。

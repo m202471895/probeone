@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/m202471895/probeone/server/internal/alert"
 	"github.com/m202471895/probeone/server/internal/config"
 	"github.com/m202471895/probeone/server/internal/model"
 	"github.com/m202471895/probeone/server/internal/monitor"
@@ -25,6 +26,9 @@ type Scheduler struct {
 	db     *store.DB
 	log    *slog.Logger
 	prober *monitor.Prober
+	// alerts 可为 nil（单测与降级场景）。
+	// 探测结果会喂给它跑规则，但引擎缺席时不影响探测本身。
+	alerts *alert.Engine
 
 	// inflight 记录正在探测的监控 ID，防止重复调度
 	mu       sync.Mutex
@@ -36,15 +40,57 @@ type Scheduler struct {
 }
 
 // New 创建调度器。
-func New(cfg *config.Config, db *store.DB, log *slog.Logger) *Scheduler {
+//
+// alerts 可传 nil：探测与数据清理不依赖告警引擎，
+// 单测与"只做采集"的降级场景都能正常工作。
+func New(cfg *config.Config, db *store.DB, log *slog.Logger, alerts *alert.Engine) *Scheduler {
 	return &Scheduler{
 		cfg:          cfg,
 		db:           db,
 		log:          log,
 		prober:       monitor.New(cfg.Storage.AllowInternalTargets),
+		alerts:       alerts,
 		inflight:     make(map[int64]struct{}),
 		certNotified: make(map[int64]string),
 	}
+}
+
+// evaluateAlert 把一次探测结果交给告警引擎。
+//
+// 只上报"失败"这一种样本：
+// 规则是"指标超阈值持续 N 次才告警"，成功样本不参与判定。
+// 把成功也喂进去会让规则误判——比如"恢复"规则需要明确的成功信号，
+// 而那属于另一种规则类型，不在这里混。
+func (s *Scheduler) evaluateAlert(ctx context.Context, m *model.Monitor, res *monitor.Result) {
+	if s.alerts == nil {
+		return
+	}
+	s.alerts.Evaluate(ctx, alert.Sample{
+		TargetType: model.TargetMonitor,
+		TargetID:   m.ID,
+		TargetName: m.Name,
+		Metric:     "probe_failed",
+		// 用 1 表示失败、0 表示正常：规则可以写 "value >= 1"
+		// 这样"连续失败 N 次"的语义直接表达成阈值，不必特殊处理。
+		Value: func() float64 {
+			if res.OK {
+				return 0
+			}
+			return 1
+		}(),
+		Message: "监控「" + m.Name + "」探测失败：" + res.Detail,
+	})
+}
+
+// flushAlertSummaries 发送静默期结束后的汇总通知。
+//
+// 必须周期调用：引擎把静默期内的事件攒着，
+// 没人调FlushSummaries 就会一直攒着，用户永远收不到汇总。
+func (s *Scheduler) flushAlertSummaries(ctx context.Context) {
+	if s.alerts == nil {
+		return
+	}
+	s.alerts.FlushSummaries(ctx)
 }
 
 // Run 启动所有后台任务，阻塞直到 ctx 取消。
@@ -62,6 +108,9 @@ func (s *Scheduler) Run(ctx context.Context) {
 		{"数据预聚合", s.cfg.Collector.RollupInterval, s.computeRollups},
 		{"过期数据清理", 3 * time.Hour, s.purgeOldData},
 		{"过期会话清理", 15 * time.Minute, s.purgeExpiredSessions},
+		// 静默汇总的发送周期与静默窗口同量级：
+		// 太快会让用户收到多条碎片通知，太慢则失去"汇总"的意义。
+		{"告警静默汇总", s.cfg.Alert.StormSilence, s.flushAlertSummaries},
 	}
 
 	for _, t := range tasks {
@@ -165,6 +214,11 @@ func (s *Scheduler) probeOne(ctx context.Context, m *model.Monitor) {
 	if len(detail) > 500 {
 		detail = detail[:500] + "..."
 	}
+	// 探测结果喂给告警引擎跑规则。
+	// 放在落库之后：引擎可能要用历史做对比，
+	// 且告警失败不该影响探测结果本身的记录。
+	s.evaluateAlert(ctx, m, res)
+
 	if _, err := s.db.Monitors.InsertResult(ctx, &model.MonitorResult{
 		MonitorID:   m.ID,
 		CheckedAt:   start.UTC(),
@@ -313,6 +367,11 @@ func (s *Scheduler) checkCertificates(ctx context.Context) {
 			}
 			s.evalCertificateAlert(ctx, m, res.Certificate)
 		}
+		// 探测结果喂给告警引擎跑规则。
+		// 放在落库之后：引擎可能要用历史做对比，
+		// 且告警失败不该影响探测结果本身的记录。
+		s.evaluateAlert(ctx, m, res)
+
 		if _, err := s.db.Monitors.InsertResult(ctx, &model.MonitorResult{
 			MonitorID: m.ID, CheckedAt: time.Now().UTC(),
 			OK: res.OK, Reason: res.Reason,
