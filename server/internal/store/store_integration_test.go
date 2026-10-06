@@ -64,20 +64,22 @@ func TestMigrate_幂等(t *testing.T) {
 		}
 	}
 
+	// 断言的是"每个已应用版本只记一条"，而不是写死具体版本号。
+	// 写死数字的话每加一个迁移这个测试就会失效一次——
+	// 写死版本号的测试会在下一次加迁移时静默变成错误预期。
 	var count int
 	if err := handle.QueryRow(`SELECT COUNT(*) FROM schema_migrations`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 1 {
-		t.Errorf("迁移版本记录数 = %d，期望 1（幂等要求不重复记录）", count)
-	}
-
 	ver, err := m.Version(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ver != 1 {
-		t.Errorf("当前版本 = %d，期望 1", ver)
+	if int64(count) != ver {
+		t.Errorf("迁移记录数 = %d，当前版本 = %d，两者应相等（幂等要求不重复记录）", count, ver)
+	}
+	if ver < 1 {
+		t.Errorf("当前版本 = %d，应至少为 1", ver)
 	}
 }
 

@@ -91,6 +91,17 @@ func resolveAndCheck(target string, allowPrivate bool) ([]string, error) {
 	return out, nil
 }
 
+// CheckTarget 供上层（如 httpapi/monitor）在**写入前**校验目标地址。
+//
+// 为什么不直接把 resolveAndCheck 导出：探测器内部调用需要 IPs（TCP/DNS 探针
+// 要直接连已解析的 IP，避免二次解析又被DNS rebinding 绕过），
+// 而写入前校验只需要"允不允许"这一个判断。两种用途的签名不同，
+// 硬合成一个会让调用方拿到用不上的返回值。
+func CheckTarget(target string, allowPrivate bool) error {
+	_, err := resolveAndCheck(target, allowPrivate)
+	return err
+}
+
 // extractHost 从目标中提取主机名。
 // 支持完整 URL（http://host:port/path）与裸主机名（host:port）。
 func extractHost(target string) string {

@@ -71,6 +71,17 @@ type CreateNodeInput struct {
 	Name       string
 	GroupID    *int64
 	SecretHash string
+	// Remark 是用户填写的备注，会出现在面板上。
+	Remark string
+	// IsPublic 控制是否出现在公开状态页。
+	// 注意：公开只暴露名称与运行状态，其余字段走脱敏层。
+	IsPublic bool
+	// GeoCountry / GeoCity 由 IP 解析或用户填写得到，
+	// 用于国旗与世界地图。城市级精度，不足以定位到具体机房。
+	GeoCountry string
+	GeoCity    string
+	GeoLat     *float64
+	GeoLon     *float64
 }
 
 type NodeListFilter struct {

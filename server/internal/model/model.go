@@ -105,6 +105,11 @@ type Node struct {
 	PublicIP     string
 	GeoCountry   string
 	GeoCity      string
+	// GeoLat / GeoLon 是城市级坐标，用于世界地图打点。
+	// 精度刻意控制在城市级——足以在地图上定位区域，
+	// 不足以定位到具体机房或街道。
+	GeoLat       *float64
+	GeoLon       *float64
 	LastSeenAt   *time.Time
 	LastReportAt *time.Time
 
