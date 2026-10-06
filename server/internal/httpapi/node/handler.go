@@ -18,12 +18,46 @@ import (
 type Handler struct {
 	db         *store.DB
 	trustProxy bool
+	// serverHost 是 HTTP 监听地址（含端口），从 PROBEONE_PUBLIC_URL 提取。
 	serverHost string
+	// publicURL 保留完整 URL（含协议），用于判断该用 http 还是 https。
+	// 只存 host 会丢掉协议信息，导致安装命令写死 https。
+	publicURL string
+	// grpcAddr 是 Agent 连接地址，缺省回退到 serverHost。
+	grpcAddr string
 }
 
-// New 创建处理器。serverHost 用于生成安装命令里的地址。
-func New(db *store.DB, trustProxy bool, serverHost string) *Handler {
-	return &Handler{db: db, trustProxy: trustProxy, serverHost: serverHost}
+// New 创建处理器。
+//
+// publicURL 用于生成安装命令——必须传**含协议**的完整 URL，
+// 因为安装命令里用 http 还是 https 取决于它。传 host:port 会丢协议，
+// 导致明文部署时生成 https 命令，用户执行报 TLS 错误。
+func New(db *store.DB, trustProxy bool, publicURL string) *Handler {
+	h := &Handler{db: db, trustProxy: trustProxy, publicURL: publicURL}
+	h.serverHost = hostOnly(publicURL)
+	return h
+}
+
+// SetGRPCAddr 设置 Agent 连接的 gRPC 地址。
+// 不配置时回退到 HTTP 地址（单端口部署场景）。
+func (h *Handler) SetGRPCAddr(addr string) { h.grpcAddr = addr }
+
+// hostOnly 从 URL 里取出 host:port。
+func hostOnly(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	s := raw
+	for _, prefix := range []string{"https://", "http://"} {
+		if strings.HasPrefix(s, prefix) {
+			s = strings.TrimPrefix(s, prefix)
+			break
+		}
+	}
+	if i := strings.IndexAny(s, "/?#"); i >= 0 {
+		s = s[:i]
+	}
+	return s
 }
 
 // Register 把节点路由挂到 mux。
@@ -221,14 +255,50 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 }
 
 // installCommand 生成一键安装命令。
+/*
+ * installCommand 生成一键安装命令。
+ *
+ * 协议必须跟着配置走，不能写死 https。
+ *
+ * 之前硬编码 https 的后果很实际：服务端只监听明文 HTTP 时，
+ * 用户执行安装命令得到
+ *   curl: (35) TLS connect error: wrong version number
+ * ——curl 在明文端口上做 TLS 握手，服务端回的是 HTTP，
+ * curl 解析出"版本号不对"就报这个错。看起来像网络问题，
+ * 实际是命令里协议写错了。
+ *
+ * 另外 --server 给的是 gRPC 端口（安装脚本用它连Agent），
+ * 而 install.sh 从 HTTP 端口拿——两者端口不同，别混用。
+ */
 func (h *Handler) installCommand(uid, secret string) string {
-	host := h.serverHost
-	if host == "" {
-		host = "PROBEONE_HOST:8008"
-	}
+	scheme, grpcHost := h.endpoints()
 	return fmt.Sprintf(
-		"curl -fsSL https://%s/install.sh | sh -s -- --server %s --uuid %s --secret %s",
-		host, host, uid, secret)
+		"curl -fsSL %s://%s/install.sh | sh -s -- --server %s --uuid %s --secret %s",
+		scheme, h.httpHost(), grpcHost, uid, secret)
+}
+
+// endpoints 拆出 (HTTP 协议, gRPC 地址)。
+//
+// grpcHost 优先用gRPC 专用地址，未配置时回退到 HTTP 地址——
+// 单端口部署下两者相同。
+func (h *Handler) endpoints() (scheme, grpcHost string) {
+	scheme = "http"
+	if strings.HasPrefix(h.publicURL, "https://") {
+		scheme = "https"
+	}
+	grpcHost = h.grpcAddr
+	if grpcHost == "" {
+		grpcHost = h.httpHost()
+	}
+	return scheme, grpcHost
+}
+
+// httpHost 是 HTTP 监听地址（含端口）。
+func (h *Handler) httpHost() string {
+	if h.serverHost != "" {
+		return h.serverHost
+	}
+	return "PROBEONE_HOST:8000"
 }
 
 // get 返回单个节点。

@@ -22,6 +22,9 @@ import (
 // 缺失时的报错必须明确：否则 go:embed 会报一个难懂的
 // "pattern dist/*: no matching files found"，看不出是前端没构建。
 //
+// downloads 单独声明：Agent 二进制体积大（~15MB），
+// 放外面是为了能让构建脚本往里放而不必重新打包前端。
+//
 //go:embed all:dist
 var dist embed.FS
 

@@ -12,9 +12,11 @@ import (
 	"io"
 	"log"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -266,7 +268,6 @@ func buildHandler(
 	// 否则任何人伪造该头就能污染审计日志。
 	_, invalidProxies := cfg.TrustProxyCIDRs()
 	trustProxy := len(invalidProxies) == 0 && hasTrustProxy(cfg)
-	serverHost := hostFromPublicURL(cfg.Server.PublicURL)
 	// 会话有效期。SecurityConfig 里没这个字段（PRD 有列但未实现），
 	// 这里给一个保守值：7 天。过期后会话自动失效，
 	// 长期令牌的风险高于短期的使用摩擦。
@@ -300,7 +301,11 @@ func buildHandler(
 
 	// ---------- 业务路由 ----------
 	httpauth.New(db, trustProxy, sessionTTL).Register(mux, authn)
-	httpnode.New(db, trustProxy, serverHost).Register(mux, authn)
+	// 节点接口要生成安装命令，因此需要知道 gRPC 端口——
+	// 安装脚本用--server 连 Agent，走的是 gRPC 而不是 HTTP。
+	nodeHandler := httpnode.New(db, trustProxy, cfg.Server.PublicURL)
+	nodeHandler.SetGRPCAddr(grpcAdvertiseAddr(cfg))
+	nodeHandler.Register(mux, authn)
 	// 探针与告警引擎是两条独立的线：
 	// 探针负责"实际发请求测量"，引擎负责"拿样本跑规则发通知"。
 	// "立即检查"只需要前者，不必等后者。
@@ -360,6 +365,31 @@ func mountWebUI(mux *http.ServeMux) {
 	// 直接命中真实文件，不走 SPA 回退。
 	mux.Handle("GET /assets/", fileServer)
 
+	/*
+	 * Agent 安装脚本。
+	 *
+	 * 单独路由而不是丢给 fileServer：
+	 * http.FileServer 靠扩展名推断 Content-Type，
+	 * .sh 会被当成纯文本甚至 application/octet-stream。
+	 * 浏览器/curl 一般不 care，但明确给 text/x-shellscript 更稳。
+	 *
+	 * Content-Disposition 用 attachment 让浏览器下载而不是显示——
+	 * 用户误点链接时不会看到一堆脚本内容。
+	 */
+	mux.HandleFunc("GET /install.sh", func(w http.ResponseWriter, r *http.Request) {
+		f, err := webFS.Open("install.sh")
+		if err != nil {
+			httpapi.Fail(w, r, apperr.NotFound("INSTALL_SCRIPT_MISSING",
+				"安装脚本未包含在当前构建中"))
+			return
+		}
+		defer func() { _ = f.Close() }()
+		w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="install.sh"`)
+		w.Header().Set("Cache-Control", "no-cache")
+		_, _ = io.Copy(w, f)
+	})
+
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		// 根路径与 index.html 都直接给文件
 		if r.URL.Path == "/" {
@@ -396,6 +426,34 @@ func mountWebUI(mux *http.ServeMux) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = io.Copy(w, index)
 	})
+}
+
+// grpcAdvertiseAddr 生成 Agent 应连接的 gRPC 地址（host:port）。
+//
+// 为什么要单独算：Agent 连的是 gRPC 端口（默认 8008），
+// 而面板地址是 HTTP 端口（8000）。两者的主机名相同、端口不同。
+// 直接复用 PUBLIC_URL 会让Agent 连到 HTTP 端口上去——
+// 握手会失败，而报错发生在 Agent 侧，难定位。
+func grpcAdvertiseAddr(cfg *config.Config) string {
+	host := hostFromPublicURL(cfg.Server.PublicURL)
+	if host == "" {
+		return ""
+	}
+	/*
+	 * 总是用 GRPCPort 覆盖端口部分。
+	 *
+	 * 之前写成"PUBLIC_URL 里已有端口就不改"，结果 PUBLIC_URL 的
+	 * 8000（HTTP 端口）被当成 gRPC 端口用了，Agent 连上去握手失败。
+	 *
+	 * 只保留主机名——主机名在两种协议下是同一个，
+	 * 而端口必须是各自服务实际监听的。
+	 */
+	name := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		name = h
+	}
+	// IPv6 字面量必须加方括号，否则 JoinHostPort 产出非法地址
+	return net.JoinHostPort(name, strconv.Itoa(cfg.Server.GRPCPort))
 }
 
 // hostFromPublicURL 从公开 URL 提取 host:port。

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
 import { humanizeError } from '@/api/client'
+import EyeIcon from '@/components/EyeIcon.vue'
 
 const auth = useAuthStore()
 const theme = useThemeStore()
@@ -137,9 +138,10 @@ async function submit(): Promise<void> {
                 type="button"
                 class="toggle-pw"
                 :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+                :title="showPassword ? '隐藏密码' : '显示密码'"
                 @click="showPassword = !showPassword"
               >
-                {{ showPassword ? '隐藏' : '显示' }}
+                <EyeIcon :open="showPassword" />
               </button>
             </div>
           </div>
@@ -433,7 +435,9 @@ async function submit(): Promise<void> {
 
 .input-wrap input {
   flex: 1;
-  padding-right: 56px;
+  /* 给 28px 的切换按钮留位+ 一点呼吸空间，
+     否则文字会顶到图标下面 */
+  padding-right: 40px;
 }
 
 .toggle-pw {
@@ -441,19 +445,32 @@ async function submit(): Promise<void> {
   right: var(--space-2);
   top: 50%;
   transform: translateY(-50%);
+  /*图标是 18px，配flex 居中才不会因行高差异看起来偏上或偏下 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: none;
   background: none;
   color: var(--text-tertiary);
-  font-size: var(--font-xs);
-  font-family: inherit;
   cursor: pointer;
-  padding: 4px 6px;
+  /* 28px 见方：够大的点击目标，桌面端不费劲 */
+  width: 28px;
+  height: 28px;
+  padding: 0;
   border-radius: var(--radius-sm);
-  transition: color var(--duration-fast) var(--ease-out);
+  transition: color var(--duration-fast) var(--ease-out),
+              background var(--duration-fast) var(--ease-out);
 }
 
 .toggle-pw:hover {
   color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+/* 键盘聚焦时要有可见轮廓，否则键盘用户看不到焦点位置 */
+.toggle-pw:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
 }
 
 .link-btn {

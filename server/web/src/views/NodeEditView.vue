@@ -10,6 +10,7 @@ import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import CardBox from '@/components/CardBox.vue'
 import { api, humanizeError } from '@/api/client'
+import { copyToClipboard } from '@/utils/clipboard'
 import { useNodeStore } from '@/stores/node'
 import type { NodeCreated } from '@/api/types'
 
@@ -45,14 +46,21 @@ async function submit(): Promise<void> {
   }
 }
 
+/*
+ * 复制文本。
+ *
+ * 用工具函数而不是直接调 navigator.clipboard：
+ * 后者在明文 HTTP 的非本机地址下是 undefined（安全上下文限制），
+ * 现象是"点了没反应"。详见 utils/clipboard.ts 的说明。
+ */
 async function copy(text: string, label: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text)
-    copied.value = label
-    setTimeout(() => (copied.value = ''), 2000)
-  } catch {
-    error.value = '复制失败，请手动选中复制'
+  const r = await copyToClipboard(text)
+  if (r === 'failed') {
+    error.value = '复制失败，请手动选中后按 Ctrl+C'
+    return
   }
+  copied.value = label
+  setTimeout(() => (copied.value = ''), 2000)
 }
 
 onMounted(() => void store.fetchGroups())
