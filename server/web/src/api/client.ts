@@ -104,10 +104,16 @@ async function refreshToken(): Promise<boolean> {
 
   refreshPromise = (async () => {
     try {
+      const cur = getToken()
       const res = await fetch(`${BASE_URL}/api/auth/refresh`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        // 必须带上旧令牌：后端用 RequireAuth 保护 refresh 端点，
+        // 不带的话必然 401，刷新永远失败，401 重试形同虚设。
+        headers: {
+          'Content-Type': 'application/json',
+          ...(cur ? { Authorization: `Bearer ${cur}` } : {}),
+        },
       })
       if (!res.ok) return false
       const body = await res.json()
@@ -206,26 +212,35 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   }
 
   if (!res.ok) {
-    const envelope = payload as { code?: number; message?: string } | null
-    // 业务错误码优先：它比 HTTP 状态更精确
-    const bizCode = envelope?.message && findBizCode(envelope.message)
+    /*
+     * 后端响应信封：{ code: string, message: string, data, request_id }
+     *
+     * code 是**字符串**业务错误码（"0" 表示成功，失败时是具体码名），
+     * 不用数字——数字码表达力不足且新增时要协调前后端。
+     * 前端用 biz_code 字段直接取，不再从 message 文本里正则捞：
+     * 靠文本匹配的错误处理，改一次文案就可能失效。
+     */
+    const envelope = payload as { code?: string; message?: string } | null
+    const rawCode = envelope?.code
+    const bizCode = rawCode && rawCode !== '0' ? rawCode : undefined
+
+    // 优先级：已知业务码文案 → 后端给的安全文案 → HTTP 状态兜底
     const message =
       (bizCode && BIZ_MESSAGES[bizCode]) ||
-      (envelope?.message && ERROR_MESSAGES[envelope.message] === undefined && !res.ok
-        ? envelope.message
-        : undefined) ||
+      envelope?.message ||
       ERROR_MESSAGES[res.status] ||
       `请求失败（${res.status}）`
-    throw new ApiError(res.status, envelope?.code ?? res.status, bizCode, message)
+
+    throw new ApiError(res.status, res.status, bizCode, message)
   }
 
-  const envelope = payload as { code?: number; data?: T } | null
-  return (envelope?.data ?? (payload as T)) as T
-}
-
-/** 从后端消息里提取业务错误码（后端目前把 code 放在 message 里）。 */
-function findBizCode(message: string): string | undefined {
-  return Object.keys(BIZ_MESSAGES).find((k) => message.includes(k))
+  // 成功响应同样走信封：{ code: "0", data: ... }
+  const envelope = payload as { code?: string; data?: T } | null
+  if (envelope && typeof envelope.code === 'string') {
+    return envelope.data as T
+  }
+  // 无信封（如204 后的空响应）时整体返回
+  return payload as T
 }
 
 // ============ 对外方法 ============

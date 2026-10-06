@@ -45,21 +45,30 @@ export default defineConfig({
   },
 
   server: {
-    port: 5173,
-    // 开发时把 API 与 gRPC 转发到本地服务端，
-    // 免得前端开发还要先起一个 Go 进程
+    port: Number(process.env.VITE_DEV_PORT ?? 5173),
+    host: '127.0.0.1',
+    /*
+     * 开发时把 API 转发到本地服务端，免得起前端还要先编译 Go。
+     *
+     * 目标地址走环境变量：联调脚本会用不同端口起后端，
+     * 写死8000 就只能对着固定的进程调试。
+     */
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        target: process.env.VITE_DEV_PROXY_TARGET ?? 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
       '/healthz': {
-        target: 'http://127.0.0.1:8000',
+        target: process.env.VITE_DEV_PROXY_TARGET ?? 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/ready': {
+        target: process.env.VITE_DEV_PROXY_TARGET ?? 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
       // WebSocket：前端实时推送
       '/api/v1/ws': {
-        target: 'ws://127.0.0.1:8000',
+        target: process.env.VITE_DEV_PROXY_TARGET?.replace('http', 'ws') ?? 'ws://127.0.0.1:8000',
         ws: true,
       },
     },
