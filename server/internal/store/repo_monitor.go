@@ -357,6 +357,12 @@ func (r *monitorRepo) AllPublic(ctx context.Context) ([]model.Monitor, error) {
 }
 
 func (r *monitorRepo) UpsertCertificate(ctx context.Context, c *model.SSLCertificate) error {
+	/*
+	 * 注意占位符与参数个数必须一致。
+	 * 这里曾经是 9 个 ?配 8 个参数，每轮证书检查都失败
+	 * （missing argument with index 9），证书信息永远写不进库。
+	 * 单元测试没覆盖到——UpsertCertificate 之前没有测试。
+	 */
 	q := `INSERT INTO ssl_certificates (monitor_id, subject, issuer, serial,
 		not_before, not_after, days_left, fingerprint, last_checked_at)
 		VALUES (?,?,?,?,?,?,?,?,?)
@@ -366,6 +372,7 @@ func (r *monitorRepo) UpsertCertificate(ctx context.Context, c *model.SSLCertifi
 			days_left = excluded.days_left, fingerprint = excluded.fingerprint,
 			last_checked_at = excluded.last_checked_at`
 	_, err := r.db.ExecContext(ctx, r.d.Rebind(q),
+		c.MonitorID,
 		nullIfEmpty(c.Subject), nullIfEmpty(c.Issuer), nullIfEmpty(c.Serial),
 		sqlbase.NullTimePtr(c.NotBefore), sqlbase.NullTimePtr(c.NotAfter),
 		c.DaysLeft, nullIfEmpty(c.Fingerprint), sqlbase.Now())
