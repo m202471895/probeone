@@ -2,6 +2,7 @@
 package monitor
 
 import (
+	"log/slog"
 	"context"
 	"fmt"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/m202471895/probeone/server/internal/apperr"
 	"github.com/m202471895/probeone/server/internal/httpapi"
 	"github.com/m202471895/probeone/server/internal/model"
+	"github.com/m202471895/probeone/server/internal/monitor"
 	probemon "github.com/m202471895/probeone/server/internal/monitor"
 	"github.com/m202471895/probeone/server/internal/store"
 )
@@ -22,9 +24,20 @@ type Handler struct {
 	db         *store.DB
 	trustProxy bool
 	alerts     *alert.Engine
+	// prober 执行实际探测。由 SetProber 注入——
+	// 构造时先建好再注入，是为了让"探针不可用"能被显式表达
+	// （返回 501），而不是在New 里悄悄建一个默认的。
+	prober *monitor.Prober
+	log    *slog.Logger
 	// allowPrivate 允许探测内网地址。默认 false（SSRF 防护，PRD T11），
 	// 只能通过 SetAllowInternalTargets 显式开启。
 	allowPrivate bool
+}
+
+// SetProber 注入探针与日志。
+func (h *Handler) SetProber(p *monitor.Prober, log *slog.Logger) {
+	h.prober = p
+	h.log = log
 }
 
 // New 创建处理器。
@@ -357,38 +370,91 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 // prober 是"立即探测"能力的结构化断言。
 //
 // alert.Engine 目前没有这个方法（P8 才补），用接口断言而不是
-// 直接调用，是为了让本包在引擎补齐前后都能编译通过：
-// 断言失败时返回 501 并说明原因，而不是让整个服务起不来。
-type prober interface {
-	ProbeNow(ctx context.Context, monitorID int64) error
-}
-
-// check 立即触发一次探测。
+/*
+ * check 立即触发一次探测。
+ *
+ * 直接调monitor.Prober 而不是绕道告警引擎：
+ * 探测是"发请求、量耗时、判成败"，是探针的职责；
+ * 引擎的职责是"拿样本跑规则、发通知"。让引擎代理探测会多一层无意义的依赖，
+ * 而引擎当前也没有这个方法。
+ *
+ * 关键：**必须同步等探测完成并落库**，然后才返回。
+ * 用户点"立即检查"是期待看到结果的，不是点个火就走。
+ * 若改成"投递到后台队列立即返回"，用户会看到探测成功但列表状态没变。
+ */
 func (h *Handler) check(w http.ResponseWriter, r *http.Request) {
 	m, err := h.monitorByID(r)
 	if err != nil {
 		httpapi.Fail(w, r, err)
 		return
 	}
-	if h.alerts == nil {
-		httpapi.Fail(w, r, errNotImplemented("告警引擎未接入，无法立即探测"))
+	if h.prober == nil {
+		httpapi.Fail(w, r, errNotImplemented("探针未初始化，无法立即探测"))
 		return
 	}
-	p, ok := any(h.alerts).(prober)
-	if !ok {
-		// TODO(P8): alert.Engine 补上 ProbeNow 后本分支自动失效。
-		// 之所以返回 501 而不是"假装成功"：用户点了"立即检查"却拿到
-		// 200，页面会显示探测成功，而实际什么都没发生——
-		// 这种假成功比直接报错危险得多。
-		httpapi.Fail(w, r, errNotImplemented("告警引擎尚未实现立即探测（ProbeNow）"))
-		return
-	}
-	if err := p.ProbeNow(r.Context(), m.ID); err != nil {
+
+	// 用请求上下文但留出余量：客户端断开不应中断探测，
+	// 但也不能让一个卡死的目标把连接吊着。
+	probeCtx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Second)
+	defer cancel()
+
+	res := h.prober.Probe(m)
+
+	now := time.Now().UTC()
+	if err := h.db.Monitors.UpdateStatus(probeCtx, m.ID, statusOf(res), now, latencyOf(res)); err != nil {
 		httpapi.Fail(w, r, err)
 		return
 	}
-	h.audit(r, "check_monitor", "monitor", itoa(m.ID), nil)
-	httpapi.OK(w, r, map[string]any{"id": m.ID, "triggered": true})
+	// 探测结果要入历史，否则"立即检查"这次的结果在详情页看不到
+	_, err = h.db.Monitors.InsertResult(probeCtx, &model.MonitorResult{
+		MonitorID:   m.ID,
+		CheckedAt:   now,
+		OK:          res.OK,
+		Reason:      res.Reason,
+		StatusCode:  res.StatusCode,
+		LatencyMs:   latencyOf(res),
+		DNSMs:       res.DNSMs,
+		TCPMs:       res.TCPMs,
+		TLSMs:       res.TLSMs,
+		TTFBMs:      res.TTFBMs,
+		ErrorDetail: res.Detail,
+	})
+	if err != nil {
+		// 状态已更新但历史写入失败：不算致命，但要如实报出来
+		// 静默忽略会让用户以为"没记录"是系统没记录
+		h.log.Warn("写入探测历史失败", "monitor_id", m.ID, "error", err)
+	}
+
+	h.audit(r, "check_monitor", "monitor", itoa(m.ID), map[string]any{"ok": res.OK})
+
+	// 探测失败**不是** HTTP 错误：探测本身成功执行了，
+	// 只是目标不可达。返回 200 带 ok=false 让前端显示真实的探测结论。
+	// 用 4xx/5xx 会让前端无法区分"请求失败"与"目标挂了"。
+	httpapi.OK(w, r, map[string]any{
+		"id":          m.ID,
+		"ok":          res.OK,
+		"reason":      res.Reason,
+		"status_code": res.StatusCode,
+		"latency_ms":  res.TotalMs,
+		"detail":      res.Detail,
+	})
+}
+
+// statusOf 把探测结果映射成监控状态。
+func statusOf(res *monitor.Result) model.MonitorStatus {
+	if res.OK {
+		return model.MonitorUp
+	}
+	return model.MonitorDown
+}
+
+// latencyOf 取总耗时。0 表示没有可用的延迟值（纳秒级的耗时也无意义）。
+func latencyOf(res *monitor.Result) *int {
+	if res.TotalMs <= 0 {
+		return nil
+	}
+	v := res.TotalMs
+	return &v
 }
 
 // errNotImplemented 构造 501。

@@ -31,6 +31,7 @@ import (
 	httpvis "github.com/m202471895/probeone/server/internal/httpapi/visibility"
 	"github.com/m202471895/probeone/server/internal/logging"
 	"github.com/m202471895/probeone/server/internal/migrate"
+	"github.com/m202471895/probeone/server/internal/monitor"
 	"github.com/m202471895/probeone/server/internal/model"
 	"github.com/m202471895/probeone/server/internal/notify"
 	"github.com/m202471895/probeone/server/internal/store"
@@ -270,7 +271,16 @@ func buildHandler(
 	// ---------- 业务路由 ----------
 	httpauth.New(db, trustProxy, sessionTTL).Register(mux, authn)
 	httpnode.New(db, trustProxy, serverHost).Register(mux, authn)
-	httpmonitor.New(db, trustProxy, alertEngine).Register(mux, authn)
+	// 探针与告警引擎是两条独立的线：
+	// 探针负责"实际发请求测量"，引擎负责"拿样本跑规则发通知"。
+	// "立即检查"只需要前者，不必等后者。
+	monitorHandler := httpmonitor.New(db, trustProxy, alertEngine)
+	monitorHandler.SetProber(monitor.New(cfg.Storage.AllowInternalTargets), log)
+	// 同一开关也要喂给 handler 本身：创建监控时的 SSRF 校验
+	// 与实际探测必须用同一个allowPrivate，
+	// 否则会出现"能创建但探测被拒"或反过来的不一致。
+	monitorHandler.SetAllowInternalTargets(cfg.Storage.AllowInternalTargets)
+	monitorHandler.Register(mux, authn)
 	httpa.New(db, trustProxy, registry).Register(mux, authn)
 	httpaudit.New(db).Register(mux, authn)
 	httpuser.New(db, trustProxy).Register(mux, authn)

@@ -24,6 +24,26 @@ import (
 )
 
 // Result 是一次探测的结果。
+/*
+ * elapsedMs 计算从 start 到现在的耗时（毫秒，向上取整）。
+ *
+ * 为什么向上取整而不是直接用 Milliseconds()：
+ * 向下取整会把任何不足 1ms 的耗时变成 0，
+ * 而 0 在监控语义里会被读成"测不出耗时"，
+ * 实际含义是"快于 1ms"。本机或同机房探测常落在 0.x ms，
+ * 于是面板上出现一片 0ms，看起来像坏了。
+ *
+ * 向上取整的代价是误差 ±1ms，对监控完全可接受。
+ */
+func elapsedMs(start time.Time) int {
+	d := time.Since(start)
+	if d < time.Millisecond {
+		return 1
+	}
+	return int(d.Milliseconds())
+}
+
+
 type Result struct {
 	OK     bool
 	Reason model.FailReason
@@ -163,7 +183,7 @@ func (p *Prober) probeHTTP(m *model.Monitor) *Result {
 	}
 	defer resp.Body.Close()
 
-	ttfbMs := int(time.Since(start).Milliseconds())
+	ttfbMs := elapsedMs(start)
 
 	// 证书信息（HTTPS 时）
 	var cert *model.SSLCertificate
@@ -176,7 +196,7 @@ func (p *Prober) probeHTTP(m *model.Monitor) *Result {
 
 	// 读响应体（限量）
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
-	totalMs := int(time.Since(start).Milliseconds())
+	totalMs := elapsedMs(start)
 	if readErr != nil && len(body) == 0 {
 		return &Result{OK: false, Reason: model.ReasonTimeout,
 			TTFBMs: &ttfbMs, TotalMs: totalMs,
@@ -259,14 +279,14 @@ func (p *Prober) probeTCP(m *model.Monitor) *Result {
 			lastErr = err
 			continue
 		}
-		tcpMs := int(time.Since(start).Milliseconds())
+		tcpMs := elapsedMs(start)
 		_ = conn.Close()
 		return &Result{OK: true, Reason: model.ReasonOK,
 			TCPMs: &tcpMs, TotalMs: tcpMs,
 			Detail: fmt.Sprintf("TCP 连接成功 (%s:%d)，耗时 %dms", ip, port, tcpMs)}
 	}
 
-	totalMs := int(time.Since(start).Milliseconds())
+	totalMs := elapsedMs(start)
 	res := &Result{TotalMs: totalMs}
 	if lastErr != nil {
 		res.Reason = classifyNetError(lastErr)
@@ -319,7 +339,7 @@ func (p *Prober) probeDNS(m *model.Monitor) *Result {
 		var name string
 		name, lookupErr = resolver.LookupCNAME(contextWithTimeoutValue(timeout), lookupHost)
 		if lookupErr == nil {
-			totalMs := int(time.Since(start).Milliseconds())
+			totalMs := elapsedMs(start)
 			// ExpectIPs 对 CNAME 同样有效：把期望的 CNAME 放进去即可
 			if len(m.Config.ExpectIPs) > 0 && containsAny(name, m.Config.ExpectIPs) {
 				return &Result{OK: true, Reason: model.ReasonOK, TotalMs: totalMs,
@@ -336,7 +356,7 @@ func (p *Prober) probeDNS(m *model.Monitor) *Result {
 			Detail: "未知的记录类型: " + record}
 	}
 
-	dnsMs := int(time.Since(start).Milliseconds())
+	dnsMs := elapsedMs(start)
 
 	if lookupErr != nil {
 		return &Result{OK: false, Reason: model.ReasonDNSError, DNSMs: &dnsMs, TotalMs: dnsMs,
@@ -405,13 +425,13 @@ func (p *Prober) probeSSL(m *model.Monitor) *Result {
 		MinVersion:         tls.VersionTLS12,
 	})
 	if err != nil {
-		totalMs := int(time.Since(start).Milliseconds())
+		totalMs := elapsedMs(start)
 		return &Result{OK: false, Reason: model.ReasonTLSError, TotalMs: totalMs,
 			Detail: "TLS 握手失败: " + err.Error()}
 	}
 	defer conn.Close()
 
-	tlsMs := int(time.Since(start).Milliseconds())
+	tlsMs := elapsedMs(start)
 	state := conn.ConnectionState()
 	cert := certFromState(&state)
 	if cert == nil {
@@ -538,7 +558,7 @@ func containsAllKeywords(body string, keywords []string) bool {
 
 // classifyHTTPError 把 Go 的网络错误映射为失败原因枚举。
 func classifyHTTPError(err error, start time.Time, timeout time.Duration) *Result {
-	totalMs := int(time.Since(start).Milliseconds())
+	totalMs := elapsedMs(start)
 	res := &Result{TotalMs: totalMs, Reason: classifyNetError(err), Detail: err.Error()}
 
 	// 超时要单独识别：它是"慢"而不是"不通"，
