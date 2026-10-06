@@ -32,6 +32,7 @@ import (
 	agentv1 "github.com/m202471895/probeone/api/agent/v1"
 	"github.com/m202471895/probeone/server/internal/auth"
 	"github.com/m202471895/probeone/server/internal/config"
+	"github.com/m202471895/probeone/server/internal/geo"
 	"github.com/m202471895/probeone/server/internal/store"
 )
 
@@ -49,12 +50,29 @@ type Service struct {
 	db     *store.DB
 	log    *slog.Logger
 	ingest *Ingestor
+	// geo 把 Agent 上报的公网 IP 解析为地理信息。
+	// 可为 nil（禁用解析），此时 geo 字段保持为空。
+	geo *geo.Resolver
 
 	// 活跃会话：session_id →节点 ID。
 	// 双向流期间保持登记，流结束即注销，便于服务端统计在线节点。
 	mu       sync.RWMutex
 	active   map[string]int64
 	lastSeen map[string]time.Time
+}
+
+// SetGeoResolver 注入地理解析器。
+//
+// 单独注入而不是放进 New：解析涉及外部请求，
+// 不该让"构造服务"这个动作带 IO 副作用。
+//
+// 必须同时给 Ingestor——实际调用 resolveGeo 的是它，
+// 只设Service 上的字段不会生效（这是接线时踩过的坑）。
+func (s *Service) SetGeoResolver(r *geo.Resolver) {
+	s.geo = r
+	if s.ingest != nil {
+		s.ingest.SetGeoResolver(r)
+	}
 }
 
 // New 创建服务。

@@ -29,6 +29,19 @@ type Config struct {
 	Log        LogConfig
 	Storage    StorageConfig
 	Visibility VisibilityConfig
+	Geo        GeoConfig
+}
+
+// GeoConfig 控制公网 IP 的地理解析。
+type GeoConfig struct {
+	// Enabled 关闭后**完全不发外部请求**，geo 字段保持为空。
+	// 给"数据不出网"的部署提供明确选项。
+	Enabled bool
+	// API 是第三方接口地址，留空用内置的。
+	// 可指向自建服务，避免依赖公网 API。
+	API string
+	// Timeout 单次请求超时。
+	Timeout time.Duration
 }
 
 type ServerConfig struct {
@@ -180,6 +193,11 @@ func Load() (*Config, error) {
 			StormThreshold: envInt("PROBEONE_ALERT_STORM_THRESHOLD", 3, addErr),
 			StormSilence:   envDuration("PROBEONE_ALERT_STORM_SILENCE", time.Hour, addErr),
 			MaxQueueSize:   envInt("PROBEONE_ALERT_MAX_QUEUE", 10000, addErr),
+		},
+		Geo: GeoConfig{
+			Enabled: envBool("PROBEONE_GEO_ENABLED", true, addErr),
+			API:     envString("PROBEONE_GEO_API", ""),
+			Timeout: envDuration("PROBEONE_GEO_TIMEOUT", 5*time.Second, addErr),
 		},
 		Security: SecurityConfig{
 			MasterKey:         envString("PROBEONE_MASTER_KEY", ""),

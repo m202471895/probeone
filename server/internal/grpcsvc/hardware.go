@@ -8,6 +8,7 @@ import (
 	"time"
 
 	agentv1 "github.com/m202471895/probeone/api/agent/v1"
+	"github.com/m202471895/probeone/server/internal/geo"
 	"github.com/m202471895/probeone/server/internal/model"
 	"github.com/m202471895/probeone/server/internal/store"
 )
@@ -29,6 +30,8 @@ type pendingFP struct {
 type Ingestor struct {
 	db  *store.DB
 	log *slog.Logger
+	// geo 解析公网 IP 到地理位置，可为 nil（禁用）。
+	geo *geo.Resolver
 
 	// pending 待确认的指纹变更：node_id → 待确认状态。
 	// 刻意放内存而非落库：这个状态只活几秒（3 轮 × 10 秒），
@@ -290,9 +293,54 @@ func (i *Ingestor) IngestHostInfo(ctx context.Context, nodeID int64, h *agentv1.
 	}
 	if h.GetPublicIp() != "" && h.GetPublicIp() != node.PublicIP {
 		node.PublicIP = h.GetPublicIp()
+		// 公网 IP 变了就重新解析地理位置。
+		// 解析失败时保留旧值——第三方服务临时不可用不该让
+		// 地图上已有点位的节点变成"未知位置"。
+		i.resolveGeo(ctx, node)
 	}
 
 	return i.db.Nodes.Update(ctx, node)
+}
+
+// SetGeoResolver 注入地理解析器。
+func (i *Ingestor) SetGeoResolver(r *geo.Resolver) { i.geo = r }
+
+/*
+ * resolveGeo 解析节点公网 IP 的地理位置并写入节点。
+ *
+ * 两条关键规则：
+ *
+ * 1. 解析失败**不清空**已有值。第三方服务临时不可用时，
+ *    地图上已有点位的节点不该变成"未知位置"——
+ *    丢失已有信息比暂时不更新更糟。
+ *
+ * 2. 用户手工设置过的位置不被覆盖。第三方库对机房 IP 的
+ *    定位常常不准（同一机房可能全落在同一个默认坐标），
+ *    手工修正的价值恰恰在于绕开这个局限。
+ */
+func (i *Ingestor) resolveGeo(ctx context.Context, node *model.Node) {
+	if i.geo == nil || node.PublicIP == "" {
+		return
+	}
+	loc, err := i.geo.Lookup(ctx, node.PublicIP)
+	if err != nil {
+		i.log.Debug("地理信息解析失败，保留原值",
+			slog.String("node", node.Name),
+			slog.String("error", err.Error()))
+		return
+	}
+	node.GeoCountry = loc.CountryCode
+	node.GeoCity = loc.City
+	lat, lon := loc.Lat, loc.Lon
+	node.GeoLat = &lat
+	node.GeoLon = &lon
+	i.log.Info("地理位置已更新",
+		slog.String("node", node.Name),
+		slog.String("country", loc.CountryCode),
+		slog.String("city", loc.City),
+		slog.Float64("lat", lat),
+		slog.Float64("lon", lon),
+		slog.String("source", loc.Source))
 }
 
 // hardwareSnapshot 是硬件规格的快照，用于比较变更。

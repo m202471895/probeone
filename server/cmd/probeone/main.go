@@ -25,6 +25,7 @@ import (
 	"github.com/m202471895/probeone/server/internal/apperr"
 	"github.com/m202471895/probeone/server/internal/collector"
 	"github.com/m202471895/probeone/server/internal/config"
+	"github.com/m202471895/probeone/server/internal/geo"
 	"github.com/m202471895/probeone/server/internal/grpcsvc"
 	"github.com/m202471895/probeone/server/internal/httpapi"
 	httpa "github.com/m202471895/probeone/server/internal/httpapi/alert"
@@ -139,8 +140,24 @@ func run() error {
 	}
 	alertEngine := alert.New(alertCfg, db, log, registry)
 
+	// 地理解析器。节点上报公网 IP 时用它查地理位置。
+	// 关闭开关时 resolver.enabled=false，Lookup 直接返回错误，
+	// 不会发出任何外部请求。
+	geoResolver := geo.New(cfg.Geo.Enabled, cfg.Geo.Timeout, log)
+	if cfg.Geo.API != "" {
+		geoResolver.SetAPI(cfg.Geo.API)
+	}
+	if cfg.Geo.Enabled {
+		log.Info("地理解析已启用",
+			slog.String("api", geoResolver.APIURL()),
+			slog.Duration("timeout", cfg.Geo.Timeout))
+	} else {
+		log.Info("地理解析已禁用（PROBEONE_GEO_ENABLED=false）")
+	}
+
 	// ---------- 6. gRPC（Agent 接入） ----------
 	grpcSvc := grpcsvc.New(cfg, db, log)
+	grpcSvc.SetGeoResolver(geoResolver)
 	grpcSrv := grpcsvc.NewServer(cfg, grpcSvc, log)
 	grpcAddr := fmt.Sprintf(":%d", cfg.Server.GRPCPort)
 	go func() {
