@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -198,27 +199,67 @@ func pathInt64(r *http.Request, key string) (int64, error) {
 
 // clientIP 取真实客户端 IP。
 //
-// 只在配置了可信代理时读 X-Forwarded-For ——
-// 无条件信任会让任何人伪造来源 IP，审计日志就失去意义了。
+// 两条安全约束（都来自实际可被利用的绕过路径）：
+//
+//  1. 只在配置了可信代理时读 X-Forwarded-For。
+//     无条件信任等于让任何人伪造来源 IP，审计日志随之失去意义。
+//
+//  2. XFF 逐段校验，畸形输入一律回退到 RemoteAddr。
+//     攻击者能自己构造这个头。若把 ",1.2.3.4" 整串当 IP 存进
+//     失败计数表，每次伪造不同前缀就落到不同"IP"上，
+//     登录锁定阈值永远达不到。
 func clientIP(r *http.Request, trustProxy bool) string {
 	if trustProxy {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			// XFF 是逗号分隔的链，取第一段（最接近客户端的那个）
-			if i := strings.IndexByte(xff, ','); i > 0 {
-				return strings.TrimSpace(xff[:i])
+			// XFF 是"客户端, 代理1, 代理2..."，最左段最接近真实客户端。
+			// 逐段找第一个合法 IP：畸形段跳过而不是整体丢弃，
+			// 因为有些反代会在最前面塞未知占位。
+			for _, part := range strings.Split(xff, ",") {
+				if ip := parseIP(strings.TrimSpace(part)); ip != "" {
+					return ip
+				}
 			}
-			return strings.TrimSpace(xff)
 		}
-		if xr := r.Header.Get("X-Real-IP"); xr != "" {
-			return strings.TrimSpace(xr)
+		if xr := strings.TrimSpace(r.Header.Get("X-Real-IP")); xr != "" {
+			if ip := parseIP(xr); ip != "" {
+				return ip
+			}
 		}
 	}
-	// RemoteAddr 带端口，去掉
-	host := r.RemoteAddr
-	if i := strings.LastIndexByte(host, ':'); i > 0 {
-		host = host[:i]
+
+	// RemoteAddr 形如 "1.2.3.4:5678" 或 "[::1]:5678"。
+	// 必须用 net.SplitHostPort：它知道 IPv6 的方括号，
+	// 手写 LastIndexByte(':') 会把 "[::1]" 当成host 剥不干净。
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		if ip := parseIP(host); ip != "" {
+			return ip
+		}
 	}
-	return host
+	// SplitHostPort 失败（可能没有端口），退而验证整串
+	if ip := parseIP(r.RemoteAddr); ip != "" {
+		return ip
+	}
+	return ""
+}
+
+// parseIP 校验并规范化 IP 字符串。
+// 非法输入返回空串——调用方据此回退，不把脏数据写进审计与计数表。
+func parseIP(s string) string {
+	s = strings.TrimSpace(s)
+	// 明确剥离 IPv6 的方括号，避免 "[::1]" 被当作合法 IP
+	s = strings.TrimPrefix(s, "[")
+	s = strings.TrimSuffix(s, "]")
+	// 剥掉 zone id（"fe80::1%eth0" 里的 "%eth0"）。
+	// net.ParseIP 不接受 zone 后缀，但审计表与锁定计数不需要它——
+	// 保留反而会让同一地址的带区/不带区写法落到不同 key。
+	if i := strings.IndexByte(s, '%'); i > 0 {
+		s = s[:i]
+	}
+	ip := net.ParseIP(s)
+	if ip == nil {
+		return ""
+	}
+	return ip.String()
 }
 
 // ========== 供子包处理器使用的导出包装 ==========

@@ -309,6 +309,95 @@ func (r *agentSessionRepo) RecordAgentFailure(ctx context.Context, clientUUID, i
 	return n, err
 }
 
+// SoftLock 写入软锁窗口。
+//
+// 单独暴露给调用方而不是让 RecordAgentFailure 内部决定：
+// 阈值判定需要配置（属于服务层职责），写库属于仓储职责。
+// 混在一起会让"改一次失败计数"和"改锁定策略"互相牵连。
+func (r *agentSessionRepo) SoftLock(ctx context.Context, clientUUID, ip string, until time.Time) error {
+	_, err := r.db.ExecContext(ctx, r.d.Rebind(
+		`UPDATE agent_failures SET locked_until = ? WHERE client_uuid = ? AND ip = ?`),
+		until.UTC(), clientUUID, ip)
+	if err != nil {
+		return fmt.Errorf("写入软锁失败: %w", err)
+	}
+	return nil
+}
+
+// HardLock 写入硬封禁标记与到期时间。
+func (r *agentSessionRepo) HardLock(ctx context.Context, clientUUID, ip string, until time.Time) error {
+	_, err := r.db.ExecContext(ctx, r.d.Rebind(
+		`UPDATE agent_failures SET hard_locked = 1, locked_until = ? WHERE client_uuid = ? AND ip = ?`),
+		until.UTC(), clientUUID, ip)
+	if err != nil {
+		return fmt.Errorf("写入硬封禁失败: %w", err)
+	}
+	return nil
+}
+
+// IsLocked 判断是否处于任意锁定状态（软锁或硬封禁）。
+//
+// 与 IsHardLocked 的区别：后者只看 hard_locked 列，
+// 软锁（连续失败超阈值写的 locked_until）会被忽略。
+// 握手鉴权必须用这个，否则软锁形同虚设。
+//
+// 返回 true 时若已过期，副作用是清零该行——
+// 让封禁到期后自动恢复，不需额外的清理任务。
+func (r *agentSessionRepo) IsLocked(ctx context.Context, clientUUID, ip string) (bool, error) {
+	q := `SELECT count, locked_until, hard_locked FROM agent_failures
+	      WHERE client_uuid = ? AND ip = ?`
+	var count int
+	var until sql.NullTime
+	var hard bool
+	err := r.db.QueryRowContext(ctx, r.d.Rebind(q), clientUUID, ip).
+		Scan(&count, &until, &hard)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	now := sqlbase.Now()
+
+	// 硬封禁优先
+	if hard {
+		if until.Valid && until.Time.After(now) {
+			return true, nil
+		}
+		/*
+		 * 硬封禁到期：整体清零。
+		 * 这里清 count 是对的——封禁期内的失败都是明确的恶意尝试，
+		 * 封禁结束就该从头开始，不该让受罚前的历史继续影响新周期。
+		 */
+		_, _ = r.db.ExecContext(ctx, r.d.Rebind(
+			`UPDATE agent_failures SET hard_locked = 0, locked_until = NULL, count = 0
+			 WHERE client_uuid = ? AND ip = ?`), clientUUID, ip)
+		return false, nil
+	}
+
+	// 软锁：只看是否落在 locked_until 窗口内
+	if until.Valid && until.Time.After(now) {
+		return true, nil
+	}
+
+	/*
+	 * 锁已过期：只清 locked_until，**绝不能动 count**。
+	 *
+	 * 之前这里顺带把 count 也清零了，等于每次握手都把失败计数归零——
+	 * 计数永远停在 1，软锁与硬封的阈值都跨不过去，限流完全失效。
+	 * 计数的清零只应该发生在握手成功（ClearAgentFailures）那一刻，
+	 * 因为成功证明持有者是对的。
+	 */
+	if until.Valid {
+		_, _ = r.db.ExecContext(ctx, r.d.Rebind(
+			`UPDATE agent_failures SET locked_until = NULL
+			 WHERE client_uuid = ? AND ip = ?`), clientUUID, ip)
+	}
+	_ = count
+	return false, nil
+}
+
 func (r *agentSessionRepo) IsHardLocked(ctx context.Context, clientUUID, ip string) (bool, error) {
 	q := `SELECT hard_locked FROM agent_failures WHERE client_uuid = ? AND ip = ?`
 	var locked bool

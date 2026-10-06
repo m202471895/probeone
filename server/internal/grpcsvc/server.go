@@ -86,6 +86,33 @@ func (s *Service) Handshake(ctx context.Context, req *agentv1.HandshakeRequest) 
 		return nil, status.Error(codes.Unauthenticated, "鉴权失败")
 	}
 
+	/*
+	 * 锁定检查：必须在校验密钥**之前**。
+	 *
+	 * 理由是握手成功会执行 ClearAgentFailures 把失败计数清零——
+	 * 如果放在密钥校验之后，被爆破的节点只要偶尔猜中一次就重置计数，
+	 * 锁定阈值永远达不到，整个机制形同虚设。
+	 *
+	 * 错误码与"密钥错误"完全一致：可区分就等于开了 UUID 枚举通道。
+	 */
+	//用 IsLocked 而非 IsHardLocked：后者只看硬封禁列，
+	// 软锁（连续失败超阈值）会被忽略，暴力破解就没有成本。
+	locked, err := s.db.AgentSessions.IsLocked(ctx, uuid, clientIP(ctx))
+	if err != nil {
+		// 查不到锁状态不等于没被锁（fail-closed）。
+		// 宁可让合法节点被拒一次，也不能让被封节点继续上报。
+		s.log.Error("查询握手锁定状态失败，按已锁定处理",
+			slog.String("uuid", maskUUID(uuid)),
+			slog.String("error", err.Error()))
+		return nil, status.Error(codes.Unauthenticated, "鉴权失败")
+	}
+	if locked {
+		s.log.Warn("握手被拒：该客户端处于锁定期",
+			slog.String("uuid", maskUUID(uuid)),
+			slog.String("ip", clientIP(ctx)))
+		return nil, status.Error(codes.Unauthenticated, "鉴权失败")
+	}
+
 	// 常量时间比较，避免时序侧信道
 	// 先比较长度是为了让 argon2.Verify 尽早返回，两次耗时都做了掩码
 	hashOK := subtle.ConstantTimeCompare([]byte(node.AgentSecretHash), []byte(node.AgentSecretHash))
@@ -281,21 +308,33 @@ func (s *Service) recordFailure(ctx context.Context, uuid string) {
 		s.log.Warn("记录握手失败失败", slog.String("error", err.Error()))
 		return
 	}
-	if count == s.cfg.Agent.MaxFailuresBeforeLock {
-		// 软锁定：5 次失败起短时锁
-		_, _ = s.db.SQL.ExecContext(ctx,
-			`UPDATE agent_failures SET locked_until = ? WHERE client_uuid = ? AND ip = ?`,
-			time.Now().Add(s.cfg.Agent.LockDuration).UTC(), uuid, ip)
+	/*
+	 * 用 >= 而不是 ==。
+	 *
+	 * == 的问题：只要计数在两次失败之间被清零过一次
+	 * （比如另一次握手成功调了 ClearAgentFailures），
+	 * 计数就永远跨不过那个精确值，软锁与硬封都形同虚设。
+	 * 攻击者只要偶尔用正确密钥握手一次，就能把计数打回 0 并无限重试。
+	 */
+	if count >= s.cfg.Agent.MaxFailuresBeforeLock {
+		// 软锁定：达到阈值后短时锁
+		if err := s.db.AgentSessions.SoftLock(ctx, uuid, ip,
+			time.Now().Add(s.cfg.Agent.LockDuration).UTC()); err != nil {
+			s.log.Error("写入软锁失败",
+				slog.String("uuid", maskUUID(uuid)), slog.String("error", err.Error()))
+		}
 		s.log.Warn("Agent 已被临时锁定",
 			slog.String("uuid", maskUUID(uuid)),
 			slog.String("ip", ip),
 			slog.Duration("duration", s.cfg.Agent.LockDuration))
 	}
 	if count >= s.cfg.Agent.HardLockAfter {
-		// 硬锁定：20 次失败封 24 小时
-		_, _ = s.db.SQL.ExecContext(ctx,
-			`UPDATE agent_failures SET hard_locked = 1, locked_until = ? WHERE client_uuid = ? AND ip = ?`,
-			time.Now().Add(time.Duration(s.cfg.Agent.HardLockHours)*time.Hour).UTC(), uuid, ip)
+		// 硬锁定：达到更高阈值后封禁
+		if err := s.db.AgentSessions.HardLock(ctx, uuid, ip,
+			time.Now().Add(time.Duration(s.cfg.Agent.HardLockHours)*time.Hour).UTC()); err != nil {
+			s.log.Error("写入硬封禁失败",
+				slog.String("uuid", maskUUID(uuid)), slog.String("error", err.Error()))
+		}
 		s.log.Error("Agent 已被长期封禁",
 			slog.String("uuid", maskUUID(uuid)),
 			slog.String("ip", ip),

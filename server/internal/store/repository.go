@@ -63,8 +63,16 @@ type AgentSessionRepository interface {
 
 	// 握手失败计数。返回当前累计失败次数。
 	RecordAgentFailure(ctx context.Context, clientUUID, ip string) (int, error)
-	// IsHardLocked 判断是否处于封禁期
+	// IsHardLocked 判断是否处于**硬封禁**期（累计失败超过阈值）。
 	IsHardLocked(ctx context.Context, clientUUID, ip string) (bool, error)
+	// IsLocked 判断是否处于任意锁定状态：软锁（连续失败超阈值）
+	// 或硬封禁。握手鉴权应该用这个——只查硬锁的话，
+	// 软锁写进库却没人读，暴力破解等于零成本。
+	IsLocked(ctx context.Context, clientUUID, ip string) (bool, error)
+	// SoftLock 写入软锁：失败次数达阈值后的短时锁定。
+	SoftLock(ctx context.Context, clientUUID, ip string, until time.Time) error
+	// HardLock 写入硬封禁：失败次数达更高阈值后的长期封禁。
+	HardLock(ctx context.Context, clientUUID, ip string, until time.Time) error
 	// ClearAgentFailures 握手成功后清零
 	ClearAgentFailures(ctx context.Context, clientUUID, ip string) error
 }
