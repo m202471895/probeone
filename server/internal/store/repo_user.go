@@ -447,15 +447,6 @@ func (r *agentSessionRepo) ClearAgentFailures(ctx context.Context, clientUUID, i
 
 // isUniqueViolation 判断是否唯一约束冲突。
 // 两种驱动的错误字符串不同，这里用子串匹配兜底。
-func isUniqueViolation(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "unique constraint") ||
-		strings.Contains(s, "unique violation") ||
-		strings.Contains(s, "duplicate key")
-}
 
 // checkAffected 检查更新/删除是否命中了行。
 // 未命中通常意味着资源不存在，转成 404 让上层不必再查一次。

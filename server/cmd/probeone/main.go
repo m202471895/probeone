@@ -35,6 +35,7 @@ import (
 	"github.com/m202471895/probeone/server/internal/model"
 	"github.com/m202471895/probeone/server/internal/notify"
 	"github.com/m202471895/probeone/server/internal/store"
+	"github.com/m202471895/probeone/server/internal/store/postgres"
 	"github.com/m202471895/probeone/server/internal/store/sqlite"
 	"github.com/m202471895/probeone/server/internal/util"
 	"github.com/m202471895/probeone/server/internal/visibility"
@@ -79,17 +80,14 @@ func run() error {
 	defer stop()
 
 	// ---------- 4. 数据库 ----------
-	// 目前只实现了 SQLite。PostgreSQL 写在 PRD 里但尚未实现驱动，
-	// 这里显式拒绝而不是静默降级——静默回落到 SQLite 会让用户
-	// 以为数据存进了 PG，实际写的是本地文件。
 	var opener store.Opener
 	switch cfg.Database.Driver {
 	case "sqlite":
 		opener = sqlite.Open
 	case "postgres":
-		return errors.New("PostgreSQL 尚未实现，请设置 PROBEONE_DB_DRIVER=sqlite")
+		opener = postgres.Open
 	default:
-		return fmt.Errorf("不支持的数据库驱动: %s（当前仅支持 sqlite）", cfg.Database.Driver)
+		return fmt.Errorf("不支持的数据库驱动: %s（支持 sqlite / postgres）", cfg.Database.Driver)
 	}
 
 	db, err := store.Open(&cfg.Database, opener)

@@ -45,9 +45,24 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	Driver          string // sqlite | postgres
-	Path            string
-	DSN             string
+	Driver string // sqlite | postgres
+	// Path 是 SQLite 数据库文件路径。
+	Path string
+	// DSN 是 PostgreSQL 的完整连接串。
+	// 给了它就忽略下面的离散字段——容器部署常直接给 DSN。
+	DSN string
+
+	// 以下字段仅 PostgreSQL 使用。DSN 为空时用于拼装连接串。
+	Host     string
+	Port     int
+	User     string
+	Password string
+	// Database 是库名。
+	Database string
+	// SSLMode 覆盖 DSN 里的 sslmode。默认 require
+	//（远程连接明文传密码风险太高）。
+	SSLMode string
+
 	MaxOpenConns    int
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
@@ -130,6 +145,12 @@ func Load() (*Config, error) {
 			Driver:          envString("PROBEONE_DB_DRIVER", "sqlite"),
 			Path:            envString("PROBEONE_DB_PATH", "./data/probeone.db"),
 			DSN:             envString("PROBEONE_DB_DSN", ""),
+			Host:            envString("PROBEONE_DB_HOST", "127.0.0.1"),
+			Port:            envInt("PROBEONE_DB_PORT", 5432, addErr),
+			User:            envString("PROBEONE_DB_USER", "probeone"),
+			Password:        envString("PROBEONE_DB_PASSWORD", ""),
+			Database:        envString("PROBEONE_DB_NAME", "probeone"),
+			SSLMode:         envString("PROBEONE_DB_SSLMODE", "require"),
 			MaxOpenConns:    envInt("PROBEONE_DB_MAX_OPEN_CONNS", 25, addErr),
 			MaxIdleConns:    envInt("PROBEONE_DB_MAX_IDLE_CONNS", 5, addErr),
 			ConnMaxLifetime: envDuration("PROBEONE_DB_CONN_MAX_LIFETIME", time.Hour, addErr),
