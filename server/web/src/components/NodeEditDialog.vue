@@ -13,6 +13,7 @@
 -->
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import ModalDialog from '@/components/ModalDialog.vue'
 import { useNodeStore } from '@/stores/node'
 import { humanizeError } from '@/api/client'
 import { copyToClipboard } from '@/utils/clipboard'
@@ -134,14 +135,14 @@ async function remove(): Promise<void> {
 </script>
 
 <template>
-  <div v-if="node" class="overlay" @click.self="emit('close')">
-    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="nd-title">
-      <header class="head">
-        <h2 id="nd-title">编辑节点</h2>
-        <button class="icon-btn" aria-label="关闭" @click="emit('close')">×</button>
-      </header>
-
-      <div class="body">
+  <ModalDialog
+    v-if="node"
+    title="编辑节点"
+    close-label="关闭编辑对话框"
+    :close-on-overlay="false"
+    @close="emit('close')"
+  >
+      <div class="node-form">
         <p v-if="error" class="error" role="alert">{{ error }}</p>
 
         <!-- 轮换密钥后的结果 -->
@@ -154,14 +155,14 @@ async function remove(): Promise<void> {
           <label class="field-label" for="nd-cmd">安装命令</label>
           <div class="copy-row">
             <code id="nd-cmd" class="cmd">{{ rotated.install_command }}</code>
-            <button class="btn-ghost" @click="copy(rotated.install_command, 'cmd')">
+            <button class="btn" @click="copy(rotated.install_command, 'cmd')">
               {{ copied === 'cmd' ? '已复制' : '复制' }}
             </button>
           </div>
           <label class="field-label" for="nd-secret">密钥</label>
           <div class="copy-row">
             <code id="nd-secret" class="cmd">{{ rotated.secret }}</code>
-            <button class="btn-ghost" @click="copy(rotated.secret, 'secret')">
+            <button class="btn" @click="copy(rotated.secret, 'secret')">
               {{ copied === 'secret' ? '已复制' : '复制' }}
             </button>
           </div>
@@ -222,7 +223,7 @@ async function remove(): Promise<void> {
               <p class="danger-title">轮换密钥</p>
               <p class="hint">旧密钥立即失效，需重新安装 Agent。</p>
             </div>
-            <button class="btn-ghost" :disabled="saving" @click="rotate">轮换</button>
+            <button class="btn" :disabled="saving" @click="rotate">轮换</button>
           </div>
 
           <div class="danger-row">
@@ -248,8 +249,8 @@ async function remove(): Promise<void> {
               @keyup.enter="remove"
             />
             <div class="confirm-actions">
-              <button class="btn-ghost" @click="confirmText = ''">取消</button>
-              <button class="btn-danger" :disabled="!canDelete || deleting" @click="remove">
+              <button class="btn" @click="confirmText = ''">取消</button>
+              <button class="btn btn-primary" :disabled="!canDelete || deleting" @click="remove">
                 {{ deleting ? '删除中…' : '确认删除' }}
               </button>
             </div>
@@ -257,71 +258,33 @@ async function remove(): Promise<void> {
         </section>
       </div>
 
-      <footer class="foot">
-        <button class="btn-ghost" @click="emit('close')">关闭</button>
-        <button class="btn-primary" :disabled="saving" @click="save">
-          {{ saving ? '保存中…' : '保存' }}
-        </button>
-      </footer>
-    </div>
-  </div>
+    <template #footer>
+      <button class="btn" @click="emit('close')">取消</button>
+      <button class="btn btn-primary" :disabled="saving" @click="save">
+        {{ saving ? '保存中…' : '保存' }}
+      </button>
+    </template>
+  </ModalDialog>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--overlay, rgb(0 0 0 / 45%));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-4);
-  z-index: 100;
-}
+/*
+ * 样式说明：
+ * - 容器（遮罩/面板/头尾）由 ModalDialog 提供，这里不重复定义
+ * - 全部使用项目 tokens（--bg-surface / --line-color / --accent …）
+ * - 按钮用全局 .btn 系列（GroupManager.vue 的非 scoped 块提供）
+ */
 
-.dialog {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-lg);
-  width: min(560px, 100%);
-  max-height: 88vh;
+.node-form {
   display: flex;
   flex-direction: column;
-  box-shadow: var(--shadow-lg);
-}
-
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-4);
-  border-bottom: 1px solid var(--border-secondary);
-}
-
-.head h2 {
-  margin: 0;
-  font-size: var(--font-base);
-  font-weight: 600;
-}
-
-.icon-btn {
-  border: none;
-  background: none;
-  font-size: 20px;
-  line-height: 1;
-  cursor: pointer;
-  color: var(--text-tertiary);
-  padding: 0 4px;
-}
-
-.body {
-  padding: var(--space-4);
-  overflow-y: auto;
-  flex: 1;
+  gap: var(--space-4);
 }
 
 .field {
-  margin-bottom: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
 .field-row {
@@ -332,24 +295,26 @@ async function remove(): Promise<void> {
 
 label,
 .field-label {
-  display: block;
   font-size: var(--font-xs);
   color: var(--text-secondary);
-  margin-bottom: var(--space-1);
 }
 
-input[type='text'],
-input:not([type]),
-input[type='number'],
+input:not([type='checkbox']),
 select {
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-sm);
-  background: var(--bg-secondary);
+  height: 34px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line-color);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
   color: var(--text-primary);
   font-size: var(--font-sm);
   font-family: inherit;
+}
+
+input:not([type='checkbox']):focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 .checkbox {
@@ -358,73 +323,80 @@ select {
   gap: var(--space-2);
   font-size: var(--font-sm);
   color: var(--text-primary);
-  margin: var(--space-3) 0;
+  cursor: pointer;
 }
 
 .hint {
   font-size: var(--font-xs);
   color: var(--text-tertiary);
-  margin: var(--space-1) 0;
+  line-height: 1.5;
 }
 
 .hint.warn {
-  color: var(--color-warning, #b45309);
+  color: var(--warning);
 }
 
 .error {
-  background: var(--color-danger-bg, rgb(239 68 68 / 10%));
-  color: var(--color-danger, #dc2626);
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
+  background: var(--critical-subtle);
+  color: var(--critical);
   font-size: var(--font-sm);
-  margin: 0 0 var(--space-3);
 }
 
+/* 密钥轮换结果 */
 .rotated {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-sm);
-  padding: var(--space-3);
-  margin-bottom: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-md);
+  background: var(--accent-subtle);
 }
 
 .rotated h3 {
-  margin: 0 0 var(--space-2);
+  margin: 0;
   font-size: var(--font-sm);
-  color: var(--color-warning, #b45309);
+  font-weight: 600;
+  color: var(--warning);
 }
 
 .copy-row {
   display: flex;
   gap: var(--space-2);
   align-items: stretch;
-  margin-bottom: var(--space-2);
 }
 
 .cmd {
   flex: 1;
-  background: var(--bg-tertiary);
-  padding: 6px 8px;
+  min-width: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--line-color);
   border-radius: var(--radius-sm);
-  font-family: var(--font-mono, monospace);
+  background: var(--bg-surface);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: var(--font-xs);
+  line-height: 1.5;
   word-break: break-all;
-  overflow-x: auto;
-  white-space: pre-wrap;
 }
 
+/* 危险操作区 */
 .danger {
-  border-top: 1px solid var(--border-secondary);
-  margin-top: var(--space-4);
-  padding-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line-color);
 }
 
 .danger h3 {
+  margin: 0;
   font-size: var(--font-xs);
+  font-weight: 600;
   color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  margin: 0 0 var(--space-2);
 }
 
 .danger-row {
@@ -436,31 +408,34 @@ select {
 }
 
 .danger-title {
-  margin: 0;
+  margin: 0 0 2px;
   font-size: var(--font-sm);
   color: var(--text-primary);
 }
 
+/* 删除二次确认 */
 .confirm {
-  background: var(--bg-secondary);
-  border: 1px solid var(--color-danger, #dc2626);
-  border-radius: var(--radius-sm);
-  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
   margin-top: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--critical);
+  border-radius: var(--radius-md);
+  background: var(--critical-subtle);
 }
 
 .confirm-hint {
   font-size: var(--font-xs);
   color: var(--text-secondary);
-  margin: 0 0 var(--space-2);
 }
 
 .confirm-input {
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
+  height: 34px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
   color: var(--text-primary);
   font-size: var(--font-sm);
 }
@@ -469,53 +444,5 @@ select {
   display: flex;
   gap: var(--space-2);
   justify-content: flex-end;
-  margin-top: var(--space-3);
-}
-
-.foot {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
-  border-top: 1px solid var(--border-secondary);
-}
-
-.btn-primary,
-.btn-ghost,
-.btn-danger,
-.btn-danger-ghost {
-  padding: 7px 14px;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-sm);
-  font-family: inherit;
-  cursor: pointer;
-  border: 1px solid transparent;
-}
-
-.btn-primary {
-  background: var(--color-primary);
-  color: #fff;
-}
-
-.btn-ghost {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  border-color: var(--border-primary);
-}
-
-.btn-danger {
-  background: var(--color-danger, #dc2626);
-  color: #fff;
-}
-
-.btn-danger-ghost {
-  background: transparent;
-  color: var(--color-danger, #dc2626);
-  border-color: var(--color-danger, #dc2626);
-}
-
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 </style>

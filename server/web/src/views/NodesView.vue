@@ -97,14 +97,29 @@ onBeforeUnmount(() => {
           <option value="offline">离线</option>
           <option value="pending">待接入</option>
         </select>
+        <!--
+          分组按钮。此前是灰底方块+文字，在工具栏里既不美观
+          也不直观——改成图标 + 计数，hover 时才显出文字。
+        -->
         <button
           v-if="auth.isAdmin"
-          class="btn-ghost"
+          class="group-btn"
           title="管理节点分组"
+          aria-label="管理节点分组"
           @click="showGroups = true"
         >
-          分组
-          <span v-if="nodes.groups.length" class="badge">{{ nodes.groups.length }}</span>
+          <svg
+            viewBox="0 0 24 24" width="15" height="15"
+            fill="none" stroke="currentColor" stroke-width="1.8"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+          >
+            <rect x="3" y="3" width="7" height="7" rx="1.5" />
+            <rect x="14" y="3" width="7" height="7" rx="1.5" />
+            <rect x="3" y="14" width="7" height="7" rx="1.5" />
+            <rect x="14" y="14" width="7" height="7" rx="1.5" />
+          </svg>
+          <span class="group-btn-text">分组</span>
+          <span v-if="nodes.groups.length" class="group-count">{{ nodes.groups.length }}</span>
         </button>
         <RouterLink v-if="auth.isAdmin" to="/nodes/new" class="btn-primary">添加节点</RouterLink>
       </div>
@@ -227,30 +242,91 @@ onBeforeUnmount(() => {
 }
 
 .row-btn {
-  padding: 3px 10px;
-  border: 1px solid var(--border-primary);
-  border-radius: var(--radius-sm);
-  background: var(--bg-secondary);
+  height: 26px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line-color);
+  border-radius: var(--radius-md);
+  background: transparent;
   color: var(--text-secondary);
   font-size: var(--font-xs);
   font-family: inherit;
   cursor: pointer;
-  transition: color var(--duration-fast) var(--ease-out);
+  white-space: nowrap;
+  transition: background var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out);
 }
 
 .row-btn:hover {
+  background: var(--bg-hover);
   color: var(--text-primary);
 }
 
-/* 分组按钮上的数量角标 */
-.badge {
-  display: inline-block;
-  margin-left: 4px;
+.row-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/*
+ * 分组按钮。
+ *
+ * 尺寸与相邻的 filter select 对齐（34px 高、radius-md），
+ * 否则工具栏里会高低不齐。
+ * 文字默认隐藏——"分组"两个字在按钮里没有信息量，
+ * 图标 + 计数已经够，hover 展开文字降低视觉噪音。
+ */
+.group-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 34px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line-color);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out),
+              border-color var(--duration-fast) var(--ease-out);
+}
+
+.group-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--line-strong);
+}
+
+.group-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.group-btn-text {
+  /* 默认不占位，hover 时才出现，避免按钮宽度跳动 */
+  display: none;
+}
+
+.group-btn:hover .group-btn-text {
+  display: inline;
+}
+
+/* 计数用 accent 色，一眼看出"有分组" */
+.group-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
   padding: 0 5px;
-  border-radius: 8px;
-  background: var(--bg-tertiary);
-  color: var(--text-tertiary);
+  border-radius: var(--radius-full);
+  background: var(--accent-subtle);
+  color: var(--accent);
   font-size: var(--font-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .toolbar {
