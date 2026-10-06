@@ -13,6 +13,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"golang.org/x/crypto/argon2"
 )
@@ -50,6 +51,38 @@ func HashPassword(password string) (string, error) {
 		argon2.Version, argonMemory, argonIterations, argonParallelism,
 		base64.RawStdEncoding.EncodeToString(salt),
 		base64.RawStdEncoding.EncodeToString(key)), nil
+}
+
+// ValidatePasswordStrength 校验密码强度，供入口层（注册、改密）在哈希之前拒绝弱口令。
+//
+// 规则：至少 10 位，且同时包含小写字母、大写字母与数字。
+//
+// 为什么与 HashPassword 分开：HashPassword 只管"能不能哈希"，
+// 它顺带做的长度检查是为了保护 argon2 参数，不是安全策略。
+// 把复杂度要求放在这里，是为了让"什么算强密码"只有一个来源——
+// 否则注册接口一套、改密接口另一套，两边不一致时弱口令总能钻进来。
+//
+// 复杂度要求的作用不是增加熵（提熵的是长度），而是**排除最容易被
+// 字典命中的组合**："password123" 字母数字齐全，却已躺在无数泄露库里。
+func ValidatePasswordStrength(password string) error {
+	if len(password) < 10 {
+		return fmt.Errorf("密码长度不足 10 位")
+	}
+	var hasLower, hasUpper, hasDigit bool
+	for _, r := range password {
+		switch {
+		case unicode.IsLower(r):
+			hasLower = true
+		case unicode.IsUpper(r):
+			hasUpper = true
+		case unicode.IsDigit(r):
+			hasDigit = true
+		}
+	}
+	if !hasLower || !hasUpper || !hasDigit {
+		return fmt.Errorf("密码必须同时包含小写字母、大写字母与数字")
+	}
+	return nil
 }
 
 // VerifyPassword 校验密码。

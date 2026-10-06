@@ -24,6 +24,11 @@ type UserRepository interface {
 	GetByID(ctx context.Context, id int64) (*model.User, error)
 	GetByUsername(ctx context.Context, username string) (*model.User, error)
 	List(ctx context.Context, limit, offset int) ([]model.User, error)
+	// Update 更新用户的可变资料字段（username/email/role/status）。
+	// 接收整个 model.User：与 NodeRepository.Update 保持一致的形状，
+	// 由调用方保证只改动白名单字段——password_hash 不在此列，
+	// 改密码必须走 UpdatePassword（它要先做强度校验）。
+	Update(ctx context.Context, u *model.User) error
 	UpdateRole(ctx context.Context, id int64, role model.Role) error
 	UpdatePassword(ctx context.Context, id int64, newPassword string) error
 	Delete(ctx context.Context, id int64) error

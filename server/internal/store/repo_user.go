@@ -105,6 +105,21 @@ func (r *userRepo) List(ctx context.Context, limit, offset int) ([]model.User, e
 	return out, rows.Err()
 }
 
+func (r *userRepo) Update(ctx context.Context, u *model.User) error {
+	q := `UPDATE users SET username = ?, email = ?, role = ?, status = ?, updated_at = ?
+	      WHERE id = ?`
+	res, err := r.db.ExecContext(ctx, r.d.Rebind(q),
+		strings.ToLower(strings.TrimSpace(u.Username)), nullIfEmpty(u.Email),
+		string(u.Role), u.Status, sqlbase.Now(), u.ID)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return apperr.Conflict(apperr.CodeUserExists, "用户名或邮箱已被占用")
+		}
+		return fmt.Errorf("更新用户失败: %w", err)
+	}
+	return checkAffected(res, "用户不存在")
+}
+
 func (r *userRepo) UpdateRole(ctx context.Context, id int64, role model.Role) error {
 	if !role.Valid() {
 		return apperr.BadRequest("角色非法")

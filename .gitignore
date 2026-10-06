@@ -47,3 +47,7 @@ logs/
 
 # UI 验证脚本的输出
 /tmp-screenshots/
+
+# 构建产物与本地数据
+server/bin/
+server/data/
