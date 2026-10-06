@@ -65,10 +65,15 @@ type Session struct {
 }
 
 // NodeGroup 是节点分组。
+//
+// JSON tag 不可省：Go 的 encoding/json 默认用字段名（大写 ID/Name/Sort），
+// 而前端 types.ts 声明的是小写 id/name/sort。
+// 缺tag 会让前端拿到 {ID:1, Name:"x"} 而读 id 得到 undefined——
+// 界面上的分组列表会是空的，且没有任何报错提示。
 type NodeGroup struct {
-	ID   int64
-	Name string
-	Sort int
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	Sort int    `json:"sort"`
 }
 
 // NodeStatus 是节点在线状态。

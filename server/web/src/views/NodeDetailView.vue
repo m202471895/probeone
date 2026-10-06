@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 节点详情：规格 + 多指标图表 */
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import CardBox from '@/components/CardBox.vue'
 import StatusDot from '@/components/StatusDot.vue'
 import {
@@ -14,18 +14,48 @@ import {
   themeColors,
 } from '@/charts/echarts'
 import type { EChartsInstance, EChartsOption } from '@/charts/echarts'
-import { api } from '@/api/client'
+import { api, humanizeError } from '@/api/client'
 import type { MetricPoint, Node } from '@/api/types'
 import { useNodeStore } from '@/stores/node'
+import { useAuthStore } from '@/stores/auth'
 import { formatBytes, formatRelative, formatUptime } from '@/utils/format'
 
 const route = useRoute()
+const router = useRouter()
 const store = useNodeStore()
+const auth = useAuthStore()
 
 const node = ref<Node | null>(null)
 const points = ref<MetricPoint[]>([])
 const range = ref<'1h' | '6h' | '24h' | '7d'>('1h')
 const loadError = ref('')
+
+/**
+ * 删除节点。
+ *
+ * 用 prompt 要求输入节点名做二次确认，而不是简单的 confirm：
+ * 删除会连带清掉历史指标且不可恢复，节点重新接入后 UID 会变、
+ * 历史数据关联不上。误点一次可能丢几周的曲线。
+ */
+async function onDelete(): Promise<void> {
+  if (!node.value) return
+  const name = node.value.name
+  const input = window.prompt(
+    `删除节点「${name}」？\n\n该节点的历史指标会一并删除，且不可恢复。\n` +
+    `如需确认，请输入节点名称：`,
+  )
+  if (input === null) return
+  if (input.trim() !== name) {
+    window.alert('节点名称不匹配，已取消删除')
+    return
+  }
+  try {
+    await store.remove(node.value.uid)
+    void router.push('/nodes')
+  } catch (err) {
+    loadError.value = humanizeError(err, '删除失败')
+  }
+}
 
 const cpuRef = ref<HTMLDivElement | null>(null)
 const memRef = ref<HTMLDivElement | null>(null)
@@ -224,6 +254,15 @@ watch(range, () => void loadPoints())
 
       <CardBox :padded="false">
         <template #actions>
+          <div class="actions-row">
+            <button
+              v-if="auth.isAdmin"
+              class="btn-danger-ghost"
+              @click="onDelete"
+            >
+              删除节点
+            </button>
+          </div>
           <div class="ranges">
             <button
               v-for="r in ['1h', '6h', '24h', '7d'] as const"

@@ -7,14 +7,22 @@ import StatusDot from '@/components/StatusDot.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import Skeleton from '@/components/Skeleton.vue'
 import CountryFlag from '@/components/CountryFlag.vue'
+import NodeEditDialog from '@/components/NodeEditDialog.vue'
+import GroupManager from '@/components/GroupManager.vue'
 import { useNodeStore } from '@/stores/node'
 import { useAuthStore } from '@/stores/auth'
 import { formatBytes, formatBits, formatRelative, regionName } from '@/utils/format'
+import type { Node } from '@/api/types'
 
 const nodes = useNodeStore()
 const auth = useAuthStore()
 
 const search = ref('')
+
+/** 编辑对话框的目标节点；null 表示关闭。 */
+const editingNode = ref<Node | null>(null)
+/** 分组管理对话框是否打开。 */
+const showGroups = ref(false)
 
 /** 列表按状态排序：离线优先。运维时最关心"谁挂了"。 */
 const sorted = computed(() => {
@@ -89,9 +97,25 @@ onBeforeUnmount(() => {
           <option value="offline">离线</option>
           <option value="pending">待接入</option>
         </select>
+        <button
+          v-if="auth.isAdmin"
+          class="btn-ghost"
+          title="管理节点分组"
+          @click="showGroups = true"
+        >
+          分组
+          <span v-if="nodes.groups.length" class="badge">{{ nodes.groups.length }}</span>
+        </button>
         <RouterLink v-if="auth.isAdmin" to="/nodes/new" class="btn-primary">添加节点</RouterLink>
       </div>
-    </template>
+      <NodeEditDialog
+    v-if="editingNode"
+    :node="editingNode"
+    @close="editingNode = null"
+    @saved="editingNode = null"
+  />
+  <GroupManager v-if="showGroups" @close="showGroups = false" />
+</template>
 
     <Skeleton v-if="nodes.loading && sorted.length === 0" type="table" :cols="6" :table-rows="7" />
 
@@ -119,6 +143,8 @@ onBeforeUnmount(() => {
             <th class="col-net">网络</th>
             <th class="col-spec">规格</th>
             <th class="col-time">最后上报</th>
+            <!-- 操作列：仅 admin 可见，viewer 无需知道这些能力存在 -->
+            <th v-if="auth.isAdmin" class="col-actions">操作</th>
           </tr>
         </thead>
         <tbody>
@@ -177,6 +203,15 @@ onBeforeUnmount(() => {
               </span>
               <span class="text-tertiary">{{ formatRelative(node.last_report_at) }}</span>
             </td>
+            <td v-if="auth.isAdmin" class="col-actions">
+              <button
+                class="row-btn"
+                :aria-label="`编辑 ${node.name}`"
+                @click="editingNode = node"
+              >
+                编辑
+              </button>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -185,6 +220,39 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.col-actions {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.row-btn {
+  padding: 3px 10px;
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  font-family: inherit;
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-out);
+}
+
+.row-btn:hover {
+  color: var(--text-primary);
+}
+
+/* 分组按钮上的数量角标 */
+.badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-tertiary);
+  font-size: var(--font-xs);
+}
+
 .toolbar {
   display: flex;
   align-items: center;

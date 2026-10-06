@@ -81,6 +81,11 @@ func (h *Handler) Register(mux *http.ServeMux, authn *httpapi.Authenticator) {
 
 	mux.Handle("GET /api/groups", authed(h.listGroups))
 	mux.Handle("POST /api/groups", admin(h.createGroup))
+	// 分组的改名与删除：前端分组管理界面需要。
+	// 后端此前只有"列出"与"新建"，改名只能删了重建——
+	// 那会丢掉 sort 之外的东西，也让界面没法做行内编辑。
+	mux.Handle("PUT /api/groups/{id}", admin(h.updateGroup))
+	mux.Handle("DELETE /api/groups/{id}", admin(h.deleteGroup))
 }
 
 // nodeView 是节点对外的 JSON 形状。
@@ -117,9 +122,9 @@ type nodeView struct {
 	GeoLon     *float64 `json:"geo_lon"`
 	PublicIP   string   `json:"public_ip"`
 
-	LastSeenAt       string `json:"last_seen_at"`
-	LastReportAt     string `json:"last_report_at"`
-	HardwareChanged  string `json:"hardware_changed_at"`
+	LastSeenAt      string `json:"last_seen_at"`
+	LastReportAt    string `json:"last_report_at"`
+	HardwareChanged string `json:"hardware_changed_at"`
 }
 
 const tsLayout = "2006-01-02T15:04:05Z"
@@ -421,11 +426,11 @@ func (h *Handler) rotateSecret(w http.ResponseWriter, r *http.Request) {
 
 // metricPoint 是图表用的时序点。
 type metricPoint struct {
-	T      int64   `json:"t"`
-	CPU    float64 `json:"cpu"`
-	Mem    float64 `json:"mem"`
-	NetRx  float64 `json:"net_rx"`
-	NetTx  float64 `json:"net_tx"`
+	T       int64   `json:"t"`
+	CPU     float64 `json:"cpu"`
+	Mem     float64 `json:"mem"`
+	NetRx   float64 `json:"net_rx"`
+	NetTx   float64 `json:"net_tx"`
 	DiskMax float64 `json:"disk_max"`
 }
 
@@ -526,6 +531,65 @@ func (h *Handler) createGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	h.audit(r, "create_group", "group", strconv.FormatInt(id, 10), map[string]any{"name": in.Name})
 	httpapi.Created(w, r, map[string]any{"id": id, "name": in.Name, "sort": in.Sort})
+}
+
+// updateGroup 改名与调整排序。
+//
+// 此前后端只有"列出"与"新建"，改名得删了重建——
+// 界面没法做行内编辑，也无法保留原sort。
+func (h *Handler) updateGroup(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "id")
+	if err != nil {
+		httpapi.Fail(w, r, err)
+		return
+	}
+	var in struct {
+		Name string `json:"name"`
+		Sort int    `json:"sort"`
+	}
+	if err := httpapi.DecodeJSON(r, &in); err != nil {
+		httpapi.Fail(w, r, err)
+		return
+	}
+	in.Name = strings.TrimSpace(in.Name)
+	if in.Name == "" {
+		httpapi.Fail(w, r, apperr.BadRequest("请填写分组名称"))
+		return
+	}
+	if err := h.db.Nodes.UpdateGroup(r.Context(), id, in.Name, in.Sort); err != nil {
+		httpapi.Fail(w, r, err)
+		return
+	}
+	h.audit(r, "update_group", "group", strconv.FormatInt(id, 10),
+		map[string]any{"name": in.Name})
+	httpapi.OK(w, r, map[string]any{"id": id, "name": in.Name, "sort": in.Sort})
+}
+
+// deleteGroup 删除分组。
+//
+// 分组删除后**节点本身不删**——节点的 group_id 置空后继续存在。
+// "删分组等于删节点"是不可逆的，且误操作代价太大。
+func (h *Handler) deleteGroup(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r, "id")
+	if err != nil {
+		httpapi.Fail(w, r, err)
+		return
+	}
+	if err := h.db.Nodes.DeleteGroup(r.Context(), id); err != nil {
+		httpapi.Fail(w, r, err)
+		return
+	}
+	h.audit(r, "delete_group", "group", strconv.FormatInt(id, 10), nil)
+	httpapi.NoContent(w, r)
+}
+
+// pathID 解析路径参数中的 int64。
+func pathID(r *http.Request, key string) (int64, error) {
+	n, err := strconv.ParseInt(r.PathValue(key), 10, 64)
+	if err != nil {
+		return 0, apperr.BadRequest("路径参数 " + key + " 不是合法数字")
+	}
+	return n, nil
 }
 
 // audit 写审计日志。

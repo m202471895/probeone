@@ -205,7 +205,12 @@ func (r *nodeRepo) Update(ctx context.Context, n *model.Node) error {
 }
 
 func (r *nodeRepo) Delete(ctx context.Context, id int64) error {
-	res, _ := r.db.ExecContext(ctx, r.d.Rebind(`DELETE FROM nodes WHERE id = ?`), id)
+	// 不吞错误：DB 报错时返回 nil 会让界面以为删成功了，
+	// 而节点还在——用户会以为是自己权限问题，反复重试。
+	res, err := r.db.ExecContext(ctx, r.d.Rebind(`DELETE FROM nodes WHERE id = ?`), id)
+	if err != nil {
+		return fmt.Errorf("删除节点失败: %w", err)
+	}
 	return checkAffected(res, "节点不存在")
 }
 
@@ -287,7 +292,12 @@ func (r *nodeRepo) UpdateGroup(ctx context.Context, id int64, name string, sort 
 }
 
 func (r *nodeRepo) DeleteGroup(ctx context.Context, id int64) error {
-	res, _ := r.db.ExecContext(ctx, r.d.Rebind(`DELETE FROM node_groups WHERE id = ?`), id)
+	// 不吞错误：DB 报错时若返回 nil，界面会以为删成功了，
+	// 实际分组还在——这种"假成功"比报错难排查得多。
+	res, err := r.db.ExecContext(ctx, r.d.Rebind(`DELETE FROM node_groups WHERE id = ?`), id)
+	if err != nil {
+		return fmt.Errorf("删除分组失败: %w", err)
+	}
 	return checkAffected(res, "分组不存在")
 }
 

@@ -80,6 +80,68 @@ export const useNodeStore = defineStore('nodes', () => {
     }
   }
 
+  /**
+   * 改单个节点。
+   *
+   * 成功后只替换列表里的那一项，不整体重拉——
+   * 列表可能正被实时指标刷新，重拉会把滚动位置与展开状态冲掉。
+   */
+  async function update(uid: string, patch: Partial<Node>): Promise<Node> {
+    const updated = await api.put<Node>(`/api/nodes/${uid}`, patch)
+    const idx = nodes.value.findIndex((n) => n.uid === uid)
+    if (idx >= 0) {
+      const copy = [...nodes.value]
+      // 合并而非整体替换：patch 可能只带 name，
+      // 整体替换会把没传的字段清成undefined。
+      copy[idx] = { ...copy[idx]!, ...updated }
+      nodes.value = copy
+    }
+    return updated
+  }
+
+  /** 删除节点。调用方负责二次确认。 */
+  async function remove(uid: string): Promise<void> {
+    await api.delete(`/api/nodes/${uid}`)
+    nodes.value = nodes.value.filter((n) => n.uid !== uid)
+    total.value = Math.max(0, total.value - 1)
+  }
+
+  /**
+   * 轮换密钥，返回新的安装命令。
+   *
+   * 明文密钥只在响应里出现一次（PRD 9.4），
+   * 因此调用方必须立刻展示给用户，不能缓存。
+   */
+  async function rotateSecret(uid: string): Promise<{ secret: string; install_command: string }> {
+    return api.post<{ secret: string; install_command: string }>(
+      `/api/nodes/${uid}/rotate-secret`,
+    )
+  }
+
+  // ---------- 分组 ----------
+
+  async function createGroup(name: string, sort = 0): Promise<void> {
+    await api.post('/api/groups', { name, sort })
+    await fetchGroups()
+  }
+
+  async function updateGroup(id: number, name: string, sort: number): Promise<void> {
+    await api.put(`/api/groups/${id}`, { name, sort })
+    await fetchGroups()
+  }
+
+  /**
+   * 删除分组。
+   *
+   * 注意：后端删除分组**不会删除节点**，节点的 group_id 置空。
+   * 所以这里不能乐观更新 nodes 数组——得重新拉，
+   * 否则节点的分组标签会显示成已删除的分组。
+   */
+  async function deleteGroup(id: number): Promise<void> {
+    await api.delete(`/api/groups/${id}`)
+    await Promise.all([fetchGroups(), fetch()])
+  }
+
   async function fetchLatestAll(): Promise<void> {
     try {
       const res = await api.get<{ items: Array<{ node_id: number } & MetricSnapshot> }>(
@@ -136,6 +198,12 @@ export const useNodeStore = defineStore('nodes', () => {
     totalDisk,
     setFilter,
     fetch,
+    update,
+    remove,
+    rotateSecret,
+    createGroup,
+    updateGroup,
+    deleteGroup,
     fetchGroups,
     fetchLatestAll,
     mergeLatest,

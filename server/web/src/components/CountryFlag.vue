@@ -17,8 +17,13 @@ import { flagOf, regionName } from '@/utils/regions'
 
 const props = withDefaults(
   defineProps<{
-    /** 国家/地区代码，如 CN / US / TW */
-    code: string
+    /**
+     * 国家/地区代码，如 CN / US / TW。
+     *
+     * 允许 undefined：Node.geo_country 本身就是可选的（未解析时为空），
+     * 声明成必填会让所有传可选字段的调用点报类型错误。
+     */
+    code?: string
     size?: number
     title?: string
   }>(),
