@@ -9,6 +9,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -18,6 +20,7 @@ import (
 	"time"
 
 	"github.com/m202471895/probeone/server/internal/alert"
+	"github.com/m202471895/probeone/server/internal/apperr"
 	"github.com/m202471895/probeone/server/internal/collector"
 	"github.com/m202471895/probeone/server/internal/config"
 	"github.com/m202471895/probeone/server/internal/grpcsvc"
@@ -40,6 +43,7 @@ import (
 	"github.com/m202471895/probeone/server/internal/store/sqlite"
 	"github.com/m202471895/probeone/server/internal/util"
 	"github.com/m202471895/probeone/server/internal/visibility"
+	"github.com/m202471895/probeone/server/internal/webembed"
 )
 
 func main() {
@@ -313,12 +317,85 @@ func buildHandler(
 	httpvis.New(db, visEngine, trustProxy).Register(mux, authn)
 	httpstatus.New(db, visEngine, trustProxy).Register(mux, authn)
 
+	// ---------- 前端静态资源 ----------
+	mountWebUI(mux)
+
 	// ---------- 中间件 ----------
 	var h http.Handler = mux
 	h = httpapi.SecurityHeaders(h)
 	h = httpapi.AccessLog(log)(h)
 	h = httpapi.Recovery(log)(h)
 	return h
+}
+
+// mountWebUI 挂载内嵌的前端产物。
+//
+// 必须做 SPA 回退：前端用 history 路由（/nodes、/alerts等），
+// 用户在 /nodes 按刷新时请求的是 /nodes 这个路径，
+// 而它对应的文件不存在。没有回退就会 404——
+// 表现是"点导航正常，刷新就白屏"。
+//
+// 回退的边界：只对**看起来像前端路由**的路径回退。
+// /api/xxx 找不到必须返回 404 JSON 而不是 index.html，
+// 否则前端会把 HTML 当 JSON 解析，错误信息变得莫名其妙。
+func mountWebUI(mux *http.ServeMux) {
+	if !webembed.Available() {
+		// 编译时没带前端产物。给出明确提示，
+		// 而不是让人对着 404 猜是不是部署漏了东西。
+		mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+			httpapi.Fail(w, r, apperr.New("WEB_UI_MISSING",
+				"前端资源未内嵌，请先执行 scripts/sync-web.sh 后重新编译", 500))
+		})
+		return
+	}
+
+	webFS, err := webembed.FS()
+	if err != nil {
+		log.Printf("挂载前端失败: %v", err)
+		return
+	}
+	fileServer := http.FileServer(http.FS(webFS))
+
+	// 静态资源挂在 /assets/ 下（Vite 的默认产物目录）。
+	// 直接命中真实文件，不走 SPA 回退。
+	mux.Handle("GET /assets/", fileServer)
+
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		// 根路径与 index.html 都直接给文件
+		if r.URL.Path == "/" {
+			index, err := webFS.Open("index.html")
+			if err == nil {
+				defer func() { _ = index.Close() }()
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				_, _ = io.Copy(w, index)
+				return
+			}
+		}
+
+		// API 路径绝不回退到 index.html：
+		// 前端会把 HTML 当 JSON 解析，报错变得难以定位。
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			httpapi.Fail(w, r, apperr.NotFound("NOT_FOUND", "接口不存在"))
+			return
+		}
+
+		// 真实文件存在就直接给（favicon.ico、robots.txt 等）
+		if f, err := webFS.Open(strings.TrimPrefix(r.URL.Path, "/")); err == nil {
+			_ = f.Close()
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+
+		// 其余一律当前端路由，回退到 index.html
+		index, err := webFS.Open("index.html")
+		if err != nil {
+			httpapi.Fail(w, r, apperr.Internal(err, "前端资源不可用"))
+			return
+		}
+		defer func() { _ = index.Close() }()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.Copy(w, index)
+	})
 }
 
 // hostFromPublicURL 从公开 URL 提取 host:port。

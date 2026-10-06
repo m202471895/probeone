@@ -135,6 +135,98 @@ for h in "X-Content-Type-Options" "X-Frame-Options" "Referrer-Policy"; do
 done
 
 echo ""
+echo "=== 9. 前端资源（曾在此处 404）==="
+ROOT_CONTENT=$(curl -s --noproxy '*' "$BASE/" | head -c 3000)
+if echo "$ROOT_CONTENT" | grep -q "id=.app"; then
+  printf '  ✓ %-42s\n' "GET / 返回前端 HTML"
+  PASS=$((PASS+1))
+else
+  printf '  ✗ %-42s\n' "GET / 未返回前端 HTML"
+  FAIL=$((FAIL+1))
+fi
+
+# SPA 回退：前端路由刷新时不能404
+SPA=$(curl -s --noproxy '*' -o /tmp/smoke_spa.txt -w '%{http_code}' "$BASE/nodes")
+if [ "$SPA" = "200" ] && grep -q "id=.app" /tmp/smoke_spa.txt; then
+  printf '  ✓ %-42s\n' "SPA 回退：/nodes 刷新不 404"
+  PASS=$((PASS+1))
+else
+  printf '  ✗ %-42s\n' "SPA 回退失败（HTTP $SPA）"
+  FAIL=$((FAIL+1))
+fi
+
+# API 404 必须返回 JSON，不能是 HTML
+APICODE=$(curl -s --noproxy '*' -o /tmp/smoke_api404.txt -w '%{http_code}' "$BASE/api/nonexistent-path")
+if [ "$APICODE" = "404" ] && grep -q '"code"' /tmp/smoke_api404.txt; then
+  printf '  ✓ %-42s\n' "API 404 返回 JSON 而非 HTML"
+  PASS=$((PASS+1))
+else
+  printf '  ✗ %-42s\n' "API 404 响应格式错误（HTTP $APICODE）"
+  FAIL=$((FAIL+1))
+fi
+
+# 静态资源能加载
+ASSET=$(echo "$ROOT_CONTENT" | grep -oE './assets/[a-zA-Z0-9._-]+\.js' | head -1 | sed 's|^\.||')
+if [ -n "$ASSET" ]; then
+  AC=$(curl -s --noproxy '*' -o /dev/null -w '%{http_code}' "$BASE$ASSET")
+  if [ "$AC" = "200" ]; then
+    printf '  ✓ %-42s %s\n' "静态资源可加载" "$ASSET"
+    PASS=$((PASS+1))
+  else
+    printf '  ✗ %-42s HTTP %s\n' "静态资源加载失败" "$AC"
+    FAIL=$((FAIL+1))
+  fi
+else
+  printf '  - %-42s 跳过（未找到资源引用）\n' "静态资源"
+fi
+
+echo ""
+echo "=== 9. 前端资源（曾在此处 404）==="
+ROOT_CONTENT=$(curl -s --noproxy '*' "$BASE/" | head -c 3000)
+if echo "$ROOT_CONTENT" | grep -q "id=.app"; then
+  printf '  ✓ %-42s\n' "GET / 返回前端 HTML"
+  PASS=$((PASS+1))
+else
+  printf '  ✗ %-42s\n' "GET / 未返回前端 HTML"
+  FAIL=$((FAIL+1))
+fi
+
+# SPA 回退：前端路由刷新时不能404
+SPA=$(curl -s --noproxy '*' -o /tmp/smoke_spa.txt -w '%{http_code}' "$BASE/nodes")
+if [ "$SPA" = "200" ] && grep -q "id=.app" /tmp/smoke_spa.txt; then
+  printf '  ✓ %-42s\n' "SPA 回退：/nodes 刷新不 404"
+  PASS=$((PASS+1))
+else
+  printf '  ✗ %-42s\n' "SPA 回退失败（HTTP $SPA）"
+  FAIL=$((FAIL+1))
+fi
+
+# API 404 必须返回 JSON，不能是 HTML
+APICODE=$(curl -s --noproxy '*' -o /tmp/smoke_api404.txt -w '%{http_code}' "$BASE/api/nonexistent-path")
+if [ "$APICODE" = "404" ] && grep -q '"code"' /tmp/smoke_api404.txt; then
+  printf '  ✓ %-42s\n' "API 404 返回 JSON 而非 HTML"
+  PASS=$((PASS+1))
+else
+  printf '  ✗ %-42s\n' "API 404 响应格式错误（HTTP $APICODE）"
+  FAIL=$((FAIL+1))
+fi
+
+# 静态资源能加载
+ASSET=$(echo "$ROOT_CONTENT" | grep -oE './assets/[a-zA-Z0-9._-]+\.js' | head -1 | sed 's|^\.||')
+if [ -n "$ASSET" ]; then
+  AC=$(curl -s --noproxy '*' -o /dev/null -w '%{http_code}' "$BASE$ASSET")
+  if [ "$AC" = "200" ]; then
+    printf '  ✓ %-42s %s\n' "静态资源可加载" "$ASSET"
+    PASS=$((PASS+1))
+  else
+    printf '  ✗ %-42s HTTP %s\n' "静态资源加载失败" "$AC"
+    FAIL=$((FAIL+1))
+  fi
+else
+  printf '  - %-42s 跳过（未找到资源引用）\n' "静态资源"
+fi
+
+echo ""
 echo "======================================"
 echo "通过 $PASS 项，失败 $FAIL 项"
 [ "$FAIL" -eq 0 ] || exit 1
