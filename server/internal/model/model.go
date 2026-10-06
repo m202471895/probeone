@@ -47,7 +47,15 @@ type User struct {
 // Session 是登录会话。
 // TokenHash 只存 SHA256 哈希，明文仅在登录响应中返回一次（PRD 9.4）。
 type Session struct {
-	ID        int64
+	ID int64
+	// NodeID 是节点 ID。
+	//
+	// agent_sessions 表沿用了 sessions 的结构，列名叫 user_id，
+	// 但 Agent 会话里存的是 node_id。历史遗留，改列名要动迁移，
+	// 因此在 Go 侧用 NodeID 表达正确语义，读写时映射到那一列。
+	// **不要因为列名而误以为这里存的是用户 ID。**
+	NodeID    int64
+	// UserID 保留给用户会话。用户会话才有值，Agent 会话为 0。
 	UserID    int64
 	TokenHash string
 	IP        string

@@ -71,6 +71,22 @@ func New(cfg *config.Config, db *store.DB, log *slog.Logger) *Service {
 
 // Handshake 处理握手。
 func (s *Service) Handshake(ctx context.Context, req *agentv1.HandshakeRequest) (*agentv1.HandshakeResponse, error) {
+	/*
+	 * 握手超时。
+	 *
+	 * 握手要做 argon2id 校验——那是故意慢的（每次几十到几百毫秒），
+	 * 攻击者可以靠并发挂住大量握手把 CPU 打满。
+	 * 超时把单次握手的资源占用封顶。
+	 *
+	 * config.Agent.HandshakeTimeout 之前配了但从未使用（PRD 有列，实现漏了），
+	 * 0 或负数表示不限制——但默认值是 10s，正常不会为 0。
+	 */
+	if timeout := s.cfg.Agent.HandshakeTimeout; timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
 	uuid, secret, err := credentialsFromContext(ctx)
 	if err != nil {
 		return nil, err
@@ -297,7 +313,9 @@ func (s *Service) authorizeSession(ctx context.Context, sessionID string) (int64
 	if err != nil {
 		return 0, status.Error(codes.Unauthenticated, "会话无效或已过期")
 	}
-	return sess.UserID, nil // agent_sessions 表里 UserID 列存的是 node_id
+	// 注意取 NodeID 而非 UserID：agent_sessions 表的 user_id 列
+	// 历史沿用了 sessions 的命名，实际存的是 node_id。
+	return sess.NodeID, nil
 }
 
 // recordFailure 记录握手失败并按阈值锁定。

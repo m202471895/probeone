@@ -166,6 +166,10 @@ func (r *monitorRepo) Delete(ctx context.Context, id int64) error {
 }
 
 func (r *monitorRepo) UpdateStatus(ctx context.Context, id int64, status model.MonitorStatus, checkedAt time.Time, latencyMs *int) error {
+	// 时间归一到 UTC：SQLite 按字面量比较时间值，
+	// 传本地时区会静默匹配 0 行（详见 sqlbase.UTC）。
+	checkedAt = sqlbase.UTC(checkedAt)
+
 	q := `UPDATE monitors SET status = ?, last_checked_at = ?, avg_latency_ms = COALESCE(?, avg_latency_ms),
 		updated_at = ? WHERE id = ?`
 	_, err := r.db.ExecContext(ctx, r.d.Rebind(q), string(status), checkedAt, latencyMs, sqlbase.Now(), id)
@@ -173,6 +177,10 @@ func (r *monitorRepo) UpdateStatus(ctx context.Context, id int64, status model.M
 }
 
 func (r *monitorRepo) DueMonitors(ctx context.Context, now time.Time, limit int) ([]model.Monitor, error) {
+	// 时间归一到 UTC：SQLite 按字面量比较时间值，
+	// 传本地时区会静默匹配 0 行（详见 sqlbase.UTC）。
+	now = sqlbase.UTC(now)
+
 	if limit <= 0 {
 		limit = 100
 	}
@@ -214,6 +222,10 @@ func (r *monitorRepo) InsertResult(ctx context.Context, res *model.MonitorResult
 }
 
 func (r *monitorRepo) Results(ctx context.Context, monitorID int64, from, to time.Time, limit int) ([]model.MonitorResult, error) {
+	// 时间归一到 UTC：SQLite 按字面量比较时间值，
+	// 传本地时区会静默匹配 0 行（详见 sqlbase.UTC）。
+	from, to = sqlbase.UTCRange(from, to)
+
 	if limit <= 0 || limit > 100000 {
 		limit = 20000
 	}
@@ -264,6 +276,10 @@ func (r *monitorRepo) Results(ctx context.Context, monitorID int64, from, to tim
 // 分位数在 Go 侧算而不是交给SQL：不同数据库的 percentile 函数
 // 差异大且版本要求高（SQLite 根本没有），放在 Go 里行为一致且好测。
 func (r *monitorRepo) Stats(ctx context.Context, monitorID int64, from, to time.Time) (Stats, error) {
+	// 时间归一到 UTC：SQLite 按字面量比较时间值，
+	// 传本地时区会静默匹配 0 行（详见 sqlbase.UTC）。
+	from, to = sqlbase.UTCRange(from, to)
+
 	var st Stats
 	q := `SELECT ok, latency_ms FROM monitor_results
 		WHERE monitor_id = ? AND checked_at >= ? AND checked_at <= ? ORDER BY checked_at`

@@ -70,6 +70,10 @@ func (r *metricRepo) InsertBatch(ctx context.Context, ms []model.NodeMetric) err
 }
 
 func (r *metricRepo) Range(ctx context.Context, nodeID int64, from, to time.Time, limit int) ([]model.NodeMetric, error) {
+	// 时间归一到 UTC：SQLite 按字面量比较时间值，
+	// 传本地时区会静默匹配 0 行（详见 sqlbase.UTC）。
+	from, to = sqlbase.UTCRange(from, to)
+
 	if limit <= 0 || limit > 100000 {
 		limit = 20000
 	}
@@ -183,6 +187,10 @@ func (r *metricRepo) LatestAll(ctx context.Context) (map[int64]model.NodeMetric,
 }
 
 func (r *metricRepo) Rollup(ctx context.Context, nodeID int64, bucket string, from, to time.Time) ([]RollupPoint, error) {
+	// 时间归一到 UTC：SQLite 按字面量比较时间值，
+	// 传本地时区会静默匹配 0 行（详见 sqlbase.UTC）。
+	from, to = sqlbase.UTCRange(from, to)
+
 	q := `SELECT bucket, bucket_at, sample_count,
 		COALESCE(cpu_avg,0), COALESCE(cpu_max,0), COALESCE(mem_avg,0), COALESCE(mem_max,0),
 		COALESCE(net_rx_avg,0), COALESCE(net_rx_max,0), COALESCE(net_tx_avg,0), COALESCE(net_tx_max,0),
@@ -217,6 +225,10 @@ func (r *metricRepo) Rollup(ctx context.Context, nodeID int64, bucket string, fr
 //
 // 网络吞吐特殊处理：net_io 存的是 JSON，聚合时取各网卡求和。
 func (r *metricRepo) ComputeAndStoreRollup(ctx context.Context, bucket string, bucketStart, bucketEnd time.Time) error {
+	// 时间归一到 UTC：SQLite 按字面量比较时间值，
+	// 传本地时区会静默匹配 0 行（详见 sqlbase.UTC）。
+	bucketStart, bucketEnd = sqlbase.UTCRange(bucketStart, bucketEnd)
+
 	// 校验聚合粒度。截断在下方按 bucket 分支处理。
 	switch bucket {
 	case "1m", "1h", "1d":
@@ -377,6 +389,10 @@ func (r *metricRepo) ComputeAndStoreRollup(ctx context.Context, bucket string, b
 }
 
 func (r *metricRepo) PurgeRaw(ctx context.Context, before time.Time) (int64, error) {
+	// 时间归一到 UTC：SQLite 按字面量比较时间值，
+	// 传本地时区会静默匹配 0 行（详见 sqlbase.UTC）。
+	before = sqlbase.UTC(before)
+
 	res, err := r.db.ExecContext(ctx, r.d.Rebind(`DELETE FROM node_metrics WHERE collected_at < ?`), before)
 	if err != nil {
 		return 0, err
@@ -385,6 +401,10 @@ func (r *metricRepo) PurgeRaw(ctx context.Context, before time.Time) (int64, err
 }
 
 func (r *metricRepo) PurgeRollup(ctx context.Context, bucket string, before time.Time) (int64, error) {
+	// 时间归一到 UTC：SQLite 按字面量比较时间值，
+	// 传本地时区会静默匹配 0 行（详见 sqlbase.UTC）。
+	before = sqlbase.UTC(before)
+
 	res, err := r.db.ExecContext(ctx, r.d.Rebind(
 		`DELETE FROM node_metrics_rollup WHERE bucket = ? AND bucket_at < ?`), bucket, before)
 	if err != nil {

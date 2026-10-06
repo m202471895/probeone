@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -265,7 +266,7 @@ func (r *agentSessionRepo) GetSession(ctx context.Context, sessionID string) (*m
 	var s model.Session
 	var ip sql.NullString
 	err := r.db.QueryRowContext(ctx, r.d.Rebind(q), sessionID).
-		Scan(&s.ID, &s.UserID, &s.TokenHash, &ip, &s.ExpiresAt, &s.CreatedAt)
+		Scan(&s.ID, &s.NodeID, &s.TokenHash, &ip, &s.ExpiresAt, &s.CreatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, apperr.Unauthenticated("会话无效，请重新握手")
@@ -370,9 +371,14 @@ func (r *agentSessionRepo) IsLocked(ctx context.Context, clientUUID, ip string) 
 		 * 这里清 count 是对的——封禁期内的失败都是明确的恶意尝试，
 		 * 封禁结束就该从头开始，不该让受罚前的历史继续影响新周期。
 		 */
-		_, _ = r.db.ExecContext(ctx, r.d.Rebind(
+		// 清理失败不影响本次返回值（本来就返回"未锁定"），
+		// 但必须记日志——否则"锁永远不释放"这类问题无从排查。
+		if _, err := r.db.ExecContext(ctx, r.d.Rebind(
 			`UPDATE agent_failures SET hard_locked = 0, locked_until = NULL, count = 0
-			 WHERE client_uuid = ? AND ip = ?`), clientUUID, ip)
+			 WHERE client_uuid = ? AND ip = ?`), clientUUID, ip); err != nil {
+			slog.Warn("清理过期硬封禁失败",
+				slog.String("client_uuid", clientUUID), slog.String("error", err.Error()))
+		}
 		return false, nil
 	}
 
@@ -390,9 +396,12 @@ func (r *agentSessionRepo) IsLocked(ctx context.Context, clientUUID, ip string) 
 	 * 因为成功证明持有者是对的。
 	 */
 	if until.Valid {
-		_, _ = r.db.ExecContext(ctx, r.d.Rebind(
+		if _, err := r.db.ExecContext(ctx, r.d.Rebind(
 			`UPDATE agent_failures SET locked_until = NULL
-			 WHERE client_uuid = ? AND ip = ?`), clientUUID, ip)
+			 WHERE client_uuid = ? AND ip = ?`), clientUUID, ip); err != nil {
+			slog.Warn("清理过期软锁失败",
+				slog.String("client_uuid", clientUUID), slog.String("error", err.Error()))
+		}
 	}
 	_ = count
 	return false, nil

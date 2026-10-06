@@ -168,10 +168,10 @@ func TestHandshake_凭据正确返回会话(t *testing.T) {
 	if err != nil {
 		t.Fatalf("会话未落库: %v", err)
 	}
-	// agent_sessions 的 node_id 被扫描进 model.Session.UserID，
-	// 这是 repository 层的历史包袱（见 server.go authorizeSession 的注释）
-	if sess.UserID != nodeID {
-		t.Errorf("会话绑定的节点 = %d，期望 %d", sess.UserID, nodeID)
+	// 用 NodeID 而不是 UserID：Agent 会话里存的是节点 ID，
+	// UserID 是给用户会话用的字段。
+	if sess.NodeID != nodeID {
+		t.Errorf("会话绑定的节点 = %d，期望 %d", sess.NodeID, nodeID)
 	}
 
 	// 服务端应下发自己的上报/心跳间隔，Agent 必须服从服务端配置

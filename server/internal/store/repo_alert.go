@@ -354,6 +354,10 @@ func (r *alertRepo) AckEvent(ctx context.Context, id, userID int64) error {
 }
 
 func (r *alertRepo) CountRecentForTarget(ctx context.Context, targetType model.AlertTargetType, targetID int64, since time.Time) (int, error) {
+	// 时间归一到 UTC：SQLite 按字面量比较时间值，
+	// 传本地时区会静默匹配 0 行（详见 sqlbase.UTC）。
+	since = sqlbase.UTC(since)
+
 	q := `SELECT COUNT(*) FROM alert_events
 	      WHERE target_type = ? AND COALESCE(target_id, -1) = COALESCE(?, -1) AND first_fired_at > ?`
 	var n int
@@ -362,6 +366,10 @@ func (r *alertRepo) CountRecentForTarget(ctx context.Context, targetType model.A
 }
 
 func (r *alertRepo) RecentFiredForTarget(ctx context.Context, targetType model.AlertTargetType, targetID int64, since, until time.Time) ([]model.AlertEvent, error) {
+	// 时间归一到 UTC：SQLite 按字面量比较时间值，
+	// 传本地时区会静默匹配 0 行（详见 sqlbase.UTC）。
+	since, until = sqlbase.UTCRange(since, until)
+
 	q := `SELECT id, rule_id, target_type, target_id, target_name, severity, status,
 		COALESCE(message,''), payload, notified, first_fired_at, last_fired_at,
 		resolved_at, acked_at, acked_by
@@ -392,6 +400,10 @@ func (r *alertRepo) MarkNotified(ctx context.Context, id int64) error {
 }
 
 func (r *alertRepo) PurgeEvents(ctx context.Context, before time.Time) (int64, error) {
+	// 时间归一到 UTC：SQLite 按字面量比较时间值，
+	// 传本地时区会静默匹配 0 行（详见 sqlbase.UTC）。
+	before = sqlbase.UTC(before)
+
 	res, err := r.db.ExecContext(ctx, r.d.Rebind(
 		`DELETE FROM alert_events WHERE status IN ('resolved','acked') AND resolved_at < ?`), before)
 	if err != nil {
@@ -554,6 +566,10 @@ func (r *auditRepo) Write(ctx context.Context, l *model.AuditLog) error {
 }
 
 func (r *auditRepo) List(ctx context.Context, userID *int64, action, targetType, targetID string, from, to time.Time, limit, offset int) ([]model.AuditLog, int, error) {
+	// 时间归一到 UTC：SQLite 按字面量比较时间值，
+	// 传本地时区会静默匹配 0 行（详见 sqlbase.UTC）。
+	from, to = sqlbase.UTCRange(from, to)
+
 	where, args := auditFilter(userID, action, targetType, targetID, from, to)
 	q := `SELECT id, user_id, COALESCE(username,''), action, COALESCE(target_type,''),
 		COALESCE(target_id,''), detail, COALESCE(ip,''), COALESCE(user_agent,''), created_at
@@ -636,6 +652,10 @@ func auditFilter(userID *int64, action, targetType, targetID string, from, to ti
 }
 
 func (r *auditRepo) Purge(ctx context.Context, before time.Time) (int64, error) {
+	// 时间归一到 UTC：SQLite 按字面量比较时间值，
+	// 传本地时区会静默匹配 0 行（详见 sqlbase.UTC）。
+	before = sqlbase.UTC(before)
+
 	res, err := r.db.ExecContext(ctx, r.d.Rebind(`DELETE FROM audit_logs WHERE created_at < ?`), before)
 	if err != nil {
 		return 0, err
