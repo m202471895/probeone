@@ -16,7 +16,12 @@ if [ ! -f "$SRC/index.html" ]; then
   exit 1
 fi
 
-rm -rf "$DST"
+# 只删前端产物，不动 downloads/。
+#
+# downloads/ 里是 Agent 二进制（几 MB），不属于 web/dist，
+# 但 rm -rf "$DST" 会把它一起清掉——而这个脚本的语义是
+# "同步前端"，不该顺手删掉别的东西。
+rm -rf "$DST/assets" "$DST/index.html" "$DST/install.sh"
 mkdir -p "$DST"
 cp -R "$SRC/." "$DST/"
 echo "前端产物已同步：$DST"

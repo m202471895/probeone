@@ -109,9 +109,36 @@ func TestValidate_必填项(t *testing.T) {
 	}
 }
 
-func TestValidate_禁止关闭证书校验(t *testing.T) {
-	// 生产环境关闭证书校验 = 流量劫持不可检测，必须拒绝
-	content := `
+func TestValidate_证书校验的判定前提(t *testing.T) {
+	/*
+	 * insecure_skip_verify 只在"配了证书"时才该被拒。
+	 *
+	 * 之前是无条件拒绝，导致明文部署（服务端默认不启用 TLS）
+	 * 连配置校验都过不了——而明文连接不涉及证书校验，
+	 * 这个选项毫无意义，不该因此拦住启动。
+	 */
+	t.Run("配置了证书时必须拒绝", func(t *testing.T) {
+		content := `
+server:
+  addr: "a:1"
+  cert_file: "/etc/ssl/server.crt"
+  key_file: "/etc/ssl/server.key"
+  insecure_skip_verify: true
+auth:
+  uuid: u
+  secret: s
+`
+		_, err := Load(writeConfig(t, content))
+		if err == nil {
+			t.Fatal("配了证书又关闭校验 = 劫持不可检测，必须拒绝")
+		}
+		if !strings.Contains(err.Error(), "insecure_skip_verify") {
+			t.Errorf("错误信息应指出证书校验问题，实际: %v", err)
+		}
+	})
+
+	t.Run("明文部署时该选项无意义，应放行", func(t *testing.T) {
+		content := `
 server:
   addr: "a:1"
   insecure_skip_verify: true
@@ -119,13 +146,10 @@ auth:
   uuid: u
   secret: s
 `
-	_, err := Load(writeConfig(t, content))
-	if err == nil {
-		t.Fatal("insecure_skip_verify=true 必须被拒绝")
-	}
-	if !strings.Contains(err.Error(), "insecure_skip_verify") {
-		t.Errorf("错误信息应指出证书校验问题，实际: %v", err)
-	}
+		if _, err := Load(writeConfig(t, content)); err != nil {
+			t.Errorf("未配证书时不应因该选项拒绝启动，实际: %v", err)
+		}
+	})
 }
 
 func TestValidate_证书文件必须成对(t *testing.T) {

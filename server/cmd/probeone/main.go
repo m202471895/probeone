@@ -393,6 +393,64 @@ func mountWebUI(mux *http.ServeMux) {
 	 * Content-Disposition 用 attachment 让浏览器下载而不是显示——
 	 * 用户误点链接时不会看到一堆脚本内容。
 	 */
+	/*
+	 * 安装包清单。
+	 *
+	 * install.sh 需要知道该下载哪个版本——之前它在脚本里猜"latest"，
+	 * 而构建产物用的是 "dev"，猜错就下载不到。
+	 * 让服务端自己报版本，是唯一可靠的做法。
+	 */
+	mux.HandleFunc("GET /downloads/manifest.json", func(w http.ResponseWriter, r *http.Request) {
+		f, err := webFS.Open("downloads/manifest.json")
+		if err != nil {
+			httpapi.Fail(w, r, apperr.NotFound("NO_ARTIFACTS", "服务端未包含 Agent 安装包"))
+			return
+		}
+		defer func() { _ = f.Close() }()
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache")
+		_, _ = io.Copy(w, f)
+	})
+
+	/*
+	 * Agent 二进制下载。
+	 *
+	 * 必须显式注册，不能交给 SPA 回退那段处理：
+	 * 回退只在"真实文件不存在"时才给 index.html，而 Agent 文件
+	 * 是存在的——但这段代码在 /downloads/ 的 404 拦截之前就return 了，
+	 * 结果永远拿不到文件。
+	 *
+	 * Content-Type 用 application/octet-stream 而不是让
+	 * http.FileServer 按扩展名猜——无扩展名的二进制容易被
+	 * 猜成 text/plain，浏览器会直接显示而不是下载。
+	 */
+	mux.HandleFunc("GET /downloads/{file}", func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("file")
+		// 只允许单层文件名：防路径穿越（../.. 之类）
+		if name == "" || strings.ContainsAny(name, "/\\") || name == ".." {
+			httpapi.Fail(w, r, apperr.BadRequest("非法的文件名"))
+			return
+		}
+		f, err := webFS.Open("downloads/" + name)
+		if err != nil {
+			httpapi.Fail(w, r, apperr.NotFound(
+				"ARTIFACT_NOT_FOUND",
+				"安装包不存在："+name+"。请运行 build.sh 重新构建。",
+			))
+			return
+		}
+		defer func() { _ = f.Close() }()
+		st, err := f.Stat()
+		if err != nil {
+			httpapi.Fail(w, r, apperr.Internal(err, "读取安装包失败"))
+			return
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Length", strconv.FormatInt(st.Size(), 10))
+		w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+		_, _ = io.Copy(w, f)
+	})
+
 	mux.HandleFunc("GET /install.sh", func(w http.ResponseWriter, r *http.Request) {
 		f, err := webFS.Open("install.sh")
 		if err != nil {
@@ -423,6 +481,25 @@ func mountWebUI(mux *http.ServeMux) {
 		// 前端会把 HTML 当 JSON 解析，报错变得难以定位。
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			httpapi.Fail(w, r, apperr.NotFound("NOT_FOUND", "接口不存在"))
+			return
+		}
+
+		/*
+		 * 下载路径同样绝不回退。
+		 *
+		 * 这个坑踩过：安装脚本按版本名请求 Agent 二进制，
+		 * 版本对不上时文件不存在，落到 SPA 回退拿到了 index.html——
+		 * curl -fsSL 不报错（HTTP 是 200），把 HTML 存成二进制，
+		 * 装到机器上一执行才炸：syntax error near unexpected token。
+		 *
+		 * 下载类请求拿不到真文件就必须报 404，
+		 * 让调用方立刻失败，而不是把错误内容当有效数据用。
+		 */
+		if strings.HasPrefix(r.URL.Path, "/downloads/") {
+			httpapi.Fail(w, r, apperr.NotFound(
+				"ARTIFACT_NOT_FOUND",
+				"安装包不存在，请检查版本号是否正确",
+			))
 			return
 		}
 

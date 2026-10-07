@@ -174,9 +174,19 @@ func (c *Config) Validate() error {
 		push("buffer.max_bytes = %d 过小，至少 64KB", c.Buffer.MaxBytes)
 	}
 
-	// 生产环境不得关闭证书校验（PRD 9.2 A6）
-	if c.Server.InsecureSkipVerify {
-		push("server.insecure_skip_verify 不应在生产环境开启：它会让人流量劫持变得不可检测")
+	/*
+	 * 证书校验只能在"配了证书"的前提下讨论。
+	 *
+	 * 之前是无条件拒绝insecure_skip_verify=true，导致明文部署
+	 * （服务端未启用 TLS，这也是当前默认）连配置都过不了校验——
+	 * 而明文连接根本不涉及证书校验，这个选项毫无意义。
+	 *
+	 * 现在只在配了证书时检查：那时它才真的降低了安全性。
+	 */
+	hasTLS := c.Server.CertFile != "" || c.Server.CAFile != ""
+	if hasTLS && c.Server.InsecureSkipVerify {
+		push("配置了证书时不得开启 server.insecure_skip_verify：" +
+			"它会让人流量劫持变得不可检测")
 	}
 
 	// 证书文件必须成对

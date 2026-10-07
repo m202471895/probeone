@@ -97,6 +97,11 @@ if [ -z "$SERVER_BASE" ]; then
   BASE="${BASE%:*}:8000"
 fi
 
+# 临时目录必须在查询版本**之前**建好——清单也要落到里面。
+TMP=$(mktemp -d)
+trap 'rm -rf "$TMP"' EXIT
+
+VERSION="${PROBEONE_AGENT_VERSION:-}"
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 case "$(uname -m)" in
   x86_64|amd64)  ARCH="amd64" ;;
@@ -108,28 +113,88 @@ case "$(uname -m)" in
     ;;
 esac
 
-VERSION="${PROBEONE_AGENT_VERSION:-latest}"
-TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
+# ---------- 向服务端查询可用版本 ----------
+#
+# 不要在脚本里猜版本号。之前这里写死 "latest"，而产物名用的是 "dev"，
+# 拼出来的地址不存在；而 /downloads/ 404 时会 SPA 回退返回 index.html，
+# curl 拿到 HTTP 200 于是把 HTML 当二进制装到机器上，
+# 报错是"syntax error near unexpected token"——离真正原因十万八千里。
+#
+# 正确做法：问服务端要什么版本。
+if [ -z "$VERSION" ]; then
+  printf "==> 查询服务端可用版本…"
+  MANIFEST="$TMP/manifest.json"
+  if ! curl -fsSL "$BASE/downloads/manifest.json" -o "$MANIFEST" 2>/dev/null; then
+    echo " 失败"
+    cat >&2 <<EOF
+
+无法获取安装包清单（$BASE/downloads/manifest.json）。
+
+可能原因：
+  1. 服务端未包含 Agent 安装包——构建时是否执行了 scripts/build-agent.sh
+  2. $BASE 不可达
+
+也可以显式指定版本绕过查询：
+  PROBEONE_AGENT_VERSION=<版本> sh install.sh --server ... --uuid ... --secret ...
+EOF
+    exit 1
+  fi
+  # 不依赖 jq：grep/sed 取 version 字段，够用且无外部依赖
+  VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$MANIFEST" | head -1)
+  if [ -z "$VERSION" ]; then
+    echo " 失败"
+    echo "清单里没有 version 字段，格式不对" >&2
+    exit 1
+  fi
+  echo " $VERSION"
+fi
 
 DOWNLOAD_URL="${BASE}/downloads/probeone-agent-${VERSION}-${OS}-${ARCH}"
-echo "==> 下载 Agent (${OS}/${ARCH})"
+echo "==> 下载 Agent (${OS}/${ARCH}, ${VERSION})"
 echo "    $DOWNLOAD_URL"
 if ! curl -fsSL "$DOWNLOAD_URL" -o "$TMP/agent"; then
   cat >&2 <<EOF
 
-下载失败。
+下载失败：$DOWNLOAD_URL
 
 可能原因：
-  1. 服务端没有这个架构的构建产物（当前探测 ${OS}/${ARCH}）
-  2. 下载地址不对——用 PROBEONE_BASE_URL 显式指定，例如：
-       PROBEONE_BASE_URL=http://<host>:8000 sh install.sh --server ... --uuid ... --secret ...
+  1. 服务端没有 ${OS}/${ARCH} 的构建产物
+     当前可用：$(tr '\n' ' ' < "$TMP/manifest.json" 2>/dev/null | sed 's/[{}"]//g;s/files://;s/version://' | cut -c1-200)
+  2. 下载地址不对——用 PROBEONE_BASE_URL 显式指定
   3. 网络不通
 
 如需手动安装，请从 ProbeOne 面板的「添加节点」对话框复制部署说明。
 EOF
+  rm -f "$TMP/agent"
   exit 1
 fi
+
+# ---------- 校验下载到的是二进制而不是 HTML ----------
+#
+# 这道检查必须有。服务端配错（SPA 回退、路径写错、反代规则不匹配）
+# 时 curl 照样返回 200，但内容是 HTML——装到机器上一执行才炸，
+# 报错信息（syntax error）与真正原因毫无关联。
+#
+# ELF 魔数：ELF。Go 静态编译产物一定以它开头。
+if ! head -c 4 "$TMP/agent" | od -An -tx1 2>/dev/null | tr -d ' \n' | grep -qi '7f454c46'; then
+  echo "下载到的不是可执行文件（前 4 字节不是 ELF 魔数）" >&2
+  echo "文件大小: $(wc -c < "$TMP/agent" | tr -d ' ') 字节" >&2
+  echo "开头内容: $(head -c 80 "$TMP/agent" | tr -d '\n')" >&2
+  cat >&2 <<EOF
+
+常见原因：
+  1. 服务端把 404 回退成了 HTML 页面
+  2. 下载地址不对（检查 PROBEONE_BASE_URL）
+  3. 被反向代理拦截
+
+请确认浏览器访问下面这个地址应该下载文件而不是显示网页：
+  $DOWNLOAD_URL
+EOF
+  rm -f "$TMP/agent"
+  exit 1
+fi
+
+chmod +x "$TMP/agent"
 
 # ---------- 安装二进制 ----------
 echo "==> 安装到 $BIN_PATH"
