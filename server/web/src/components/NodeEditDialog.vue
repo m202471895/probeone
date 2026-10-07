@@ -12,7 +12,7 @@
   误点一次就可能丢几周的曲线。
 -->
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import { useNodeStore } from '@/stores/node'
 import { humanizeError } from '@/api/client'
@@ -33,16 +33,12 @@ const geoCity = ref('')
 
 const saving = ref(false)
 const error = ref('')
-/** 删除确认要用户输入节点名，完全匹配才放行。 */
-const confirmText = ref('')
+/** 删���确认弹窗的可见状态。 */
+const confirmVisible = ref(false)
 const deleting = ref(false)
 /** 轮换密钥后展示新安装命令——明文只出现这一次。 */
 const rotated = ref<{ secret: string; install_command: string } | null>(null)
 const copied = ref('')
-
-const canDelete = computed(
-  () => props.node !== null && confirmText.value.trim() === props.node.name,
-)
 
 watch(
   () => props.node,
@@ -55,7 +51,7 @@ watch(
     geoCountry.value = n.geo_country ?? ''
     geoCity.value = n.geo_city ?? ''
     error.value = ''
-    confirmText.value = ''
+    confirmVisible.value = false
     rotated.value = null
   },
   { immediate: true },
@@ -119,11 +115,12 @@ async function copy(text: string, label: string): Promise<void> {
 }
 
 async function remove(): Promise<void> {
-  if (!props.node || !canDelete.value) return
+  if (!props.node) return
   deleting.value = true
   error.value = ''
   try {
     await store.remove(props.node.uid)
+    confirmVisible.value = false
     emit('saved')
     emit('close')
   } catch (err) {
@@ -131,6 +128,17 @@ async function remove(): Promise<void> {
   } finally {
     deleting.value = false
   }
+}
+
+/**
+ * 打开删除确认弹窗。
+ *
+ * 用弹窗而不是 window.confirm：原生确认框在浏览器里样式不可控，
+ * 且无法把"历史指标会一并删除"这种关键信息说清楚。
+ * 弹窗里必须写明后果——删除不可恢复。
+ */
+function askDelete(): void {
+  confirmVisible.value = true
 }
 </script>
 
@@ -231,29 +239,9 @@ async function remove(): Promise<void> {
               <p class="danger-title">删除节点</p>
               <p class="hint">连同历史指标一并删除，不可恢复。</p>
             </div>
-            <button class="btn-danger-ghost" :disabled="saving" @click="confirmText = ''">
+            <button class="btn btn-danger-ghost" :disabled="saving" @click="askDelete">
               删除…
             </button>
-          </div>
-
-          <!--二次确认：必须输入节点名才能放行 -->
-          <div v-if="!confirmText && !rotated" class="confirm">
-            <p class="confirm-hint">
-              请输入节点名 <code>{{ node.name }}</code> 以确认删除
-            </p>
-            <input
-              v-model="confirmText"
-              class="confirm-input"
-              :placeholder="node.name"
-              autocomplete="off"
-              @keyup.enter="remove"
-            />
-            <div class="confirm-actions">
-              <button class="btn" @click="confirmText = ''">取消</button>
-              <button class="btn btn-primary" :disabled="!canDelete || deleting" @click="remove">
-                {{ deleting ? '删除中…' : '确认删除' }}
-              </button>
-            </div>
           </div>
         </section>
       </div>
@@ -262,6 +250,39 @@ async function remove(): Promise<void> {
       <button class="btn" @click="emit('close')">取消</button>
       <button class="btn btn-primary" :disabled="saving" @click="save">
         {{ saving ? '保存中…' : '保存' }}
+      </button>
+    </template>
+  </ModalDialog>
+
+  <!--
+    删除确认弹窗。放在 ModalDialog 之外但同一层级：
+    编辑框本身已经是一个对话框，嵌套两层遮罩会让 z-index 与
+    焦点管理变复杂（ModalDialog 的 Esc 监听会互相干扰）。
+  -->
+  <ModalDialog
+    v-if="confirmVisible && node"
+    title="删除节点"
+    close-label="取消删除"
+    :close-on-overlay="true"
+    @close="confirmVisible = false"
+  >
+    <p class="confirm-lead">
+      确定要删除节点 <strong>{{ node.name }}</strong> 吗？
+    </p>
+    <ul class="confirm-list">
+      <li>该节点的历史指标与统计数据会一并删除</li>
+      <li>节点上的 Agent 将无法再上报数据</li>
+      <li>此操作<b>不可恢复</b></li>
+    </ul>
+    <p class="confirm-note">
+      重新添加节点会生成新的 UID，历史数据无法关联回来。
+      如果只是想暂停监控，删除前可以先停用 Agent 而不删节点。
+    </p>
+
+    <template #footer>
+      <button class="btn" :disabled="deleting" @click="confirmVisible = false">取消</button>
+      <button class="btn btn-danger" :disabled="deleting" @click="remove">
+        {{ deleting ? '删除中…' : '确认删除' }}
       </button>
     </template>
   </ModalDialog>
@@ -414,35 +435,45 @@ select:focus {
 }
 
 /* 删除二次确认 */
-.confirm {
+
+/* 删除确认弹窗 */
+.confirm-lead {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+.confirm-lead strong {
+  font-weight: 600;
+}
+
+.confirm-list {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-5);
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-  padding: var(--space-4);
-  border: 1px solid var(--critical);
-  border-radius: var(--radius-md);
-  background: var(--critical-subtle);
+  gap: var(--space-1);
 }
 
-.confirm-hint {
-  font-size: var(--font-xs);
-  color: var(--text-secondary);
-}
-
-.confirm-input {
-  height: 34px;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-md);
-  background: var(--bg-surface);
-  color: var(--text-primary);
+.confirm-list li {
   font-size: var(--font-sm);
+  color: var(--text-secondary);
+  line-height: 1.6;
 }
 
-.confirm-actions {
-  display: flex;
-  gap: var(--space-2);
-  justify-content: flex-end;
+.confirm-list b {
+  color: var(--critical);
+  font-weight: 600;
+}
+
+.confirm-note {
+  margin: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  line-height: 1.6;
 }
 </style>

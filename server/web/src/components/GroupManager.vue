@@ -286,6 +286,21 @@ async function remove(g: NodeGroup): Promise<void> {
   color: var(--text-inverse);
 }
 
+/* 实心危险按钮：用于不可逆操作的最终确认 */
+.btn-danger {
+  background: var(--critical);
+  border-color: var(--critical);
+  color: var(--text-inverse);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--critical);
+  border-color: var(--critical);
+  /* 深色主题下文字需要变亮，单纯保持白字会看不清 */
+  filter: brightness(0.92);
+  color: var(--text-inverse);
+}
+
 .btn-danger-ghost {
   color: var(--critical);
   border-color: transparent;

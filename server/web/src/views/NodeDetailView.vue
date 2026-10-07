@@ -3,6 +3,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import CardBox from '@/components/CardBox.vue'
+import ModalDialog from '@/components/ModalDialog.vue'
 import StatusDot from '@/components/StatusDot.vue'
 import {
   baseAxis,
@@ -29,31 +30,34 @@ const node = ref<Node | null>(null)
 const points = ref<MetricPoint[]>([])
 const range = ref<'1h' | '6h' | '24h' | '7d'>('1h')
 const loadError = ref('')
+/** 删除确认弹窗是否可见。 */
+const deleteVisible = ref(false)
+const deleting = ref(false)
 
-/**
+/*
  * 删除节点。
  *
- * 用 prompt 要求输入节点名做二次确认，而不是简单的 confirm：
  * 删除会连带清掉历史指标且不可恢复，节点重新接入后 UID 会变、
- * 历史数据关联不上。误点一次可能丢几周的曲线。
+ * 历史数据关联不上——所以必须有一次明确确认。
+ *
+ * 用项目自���的 ModalDialog 而非 window.confirm/prompt：
+ * 原生弹窗样式不可控，且说不清"历史数据会一并丢失"这种关键后果。
  */
-async function onDelete(): Promise<void> {
+function onDelete(): void {
+  deleteVisible.value = true
+}
+
+async function doDelete(): Promise<void> {
   if (!node.value) return
-  const name = node.value.name
-  const input = window.prompt(
-    `删除节点「${name}」？\n\n该节点的历史指标会一并删除，且不可恢复。\n` +
-    `如需确认，请输入节点名称：`,
-  )
-  if (input === null) return
-  if (input.trim() !== name) {
-    window.alert('节点名称不匹配，已取消删除')
-    return
-  }
+  deleting.value = true
   try {
     await store.remove(node.value.uid)
     void router.push('/nodes')
   } catch (err) {
     loadError.value = humanizeError(err, '删除失败')
+    deleteVisible.value = false
+  } finally {
+    deleting.value = false
   }
 }
 
@@ -299,9 +303,71 @@ watch(range, () => void loadPoints())
 
     <div v-else class="error-box">加载中…</div>
   </div>
+  <!-- 删除确认：与编辑框共用 ModalDialog -->
+  <ModalDialog
+    v-if="deleteVisible && node"
+    title="删除节点"
+    close-label="取消删除"
+    @close="deleteVisible = false"
+  >
+    <p class="del-lead">
+      确定要删除节点 <strong>{{ node.name }}</strong> 吗？
+    </p>
+    <ul class="del-list">
+      <li>该节点的历史指标与统计数据会一并删除</li>
+      <li>节点上的 Agent 将无法再上报数据</li>
+      <li>此操作<b>不可恢复</b></li>
+    </ul>
+    <p class="del-note">
+      重新添加节点会生成新的 UID，历史数据无法关联回来。
+      如果只是想暂停监控，删除前可以先停用 Agent 而不删节点。
+    </p>
+
+    <template #footer>
+      <button class="btn" :disabled="deleting" @click="deleteVisible = false">取消</button>
+      <button class="btn btn-danger" :disabled="deleting" @click="doDelete">
+        {{ deleting ? '删除中…' : '确认删除' }}
+      </button>
+    </template>
+  </ModalDialog>
 </template>
 
 <style scoped>
+.del-lead {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+.del-list {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.del-list li {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.del-list b {
+  color: var(--critical);
+  font-weight: 600;
+}
+
+.del-note {
+  margin: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  font-size: var(--font-xs);
+  color: var(--text-tertiary);
+  line-height: 1.6;
+}
 .node-detail {
   display: flex;
   flex-direction: column;
