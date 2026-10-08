@@ -18,7 +18,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	agentv1 "github.com/m202471895/probeone/api/agent/v1"
-	"github.com/m202471895/probeone/server/internal/auth"
 	"github.com/m202471895/probeone/server/internal/config"
 	"github.com/m202471895/probeone/server/internal/migrate"
 	"github.com/m202471895/probeone/server/internal/store"
@@ -115,12 +114,22 @@ func setupService(t *testing.T) (*store.DB, *Service, agentv1.AgentServiceClient
 // createNode 建一个节点，其密钥哈希是 testSecret 的真实 argon2id 哈希。
 // 必须用真哈希：Handshake 走 auth.VerifyPassword，假哈希一律校验失败，
 // "握手成功"这个用例就跑不通。
+/*
+ * createNode 建一个节点。
+ *
+ * 关键：用 store.HashToken（SHA-256+pepper）而不是 auth.HashPassword
+ * （argon2id）造哈希，必须与 handler.create 的真实存储方式一致。
+ *
+ * 这个不一致造成过假绿灯：测试用 argon2 造、握手用 argon2 验，
+ * 自洽地通过了；而生产走HashToken 存 + argon2 验，**握手永远失败**。
+ * 测试没能拦住它，因为测试复刻的是错的算法。
+ *
+ * 教训：验证用的构造方式必须与生产代码共用同一个函数，
+ * 不能"看起来等价"就另写一份。
+ */
 func createNode(t *testing.T, db *store.DB, uid string) int64 {
 	t.Helper()
-	hash, err := auth.HashPassword(testSecret)
-	if err != nil {
-		t.Fatalf("生成密钥哈希失败: %v", err)
-	}
+	hash := store.HashToken(testSecret)
 	id, err := db.Nodes.Create(context.Background(), store.CreateNodeInput{
 		UID: uid, Name: "节点-" + uid, SecretHash: hash,
 	})

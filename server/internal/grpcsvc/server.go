@@ -149,11 +149,24 @@ func (s *Service) Handshake(ctx context.Context, req *agentv1.HandshakeRequest) 
 
 	// 常量时间比较，避免时序侧信道
 	// 先比较长度是为了让 argon2.Verify 尽早返回，两次耗时都做了掩码
-	hashOK := subtle.ConstantTimeCompare([]byte(node.AgentSecretHash), []byte(node.AgentSecretHash))
-	verifyOK := auth.VerifyPassword(secret, node.AgentSecretHash)
-	// hashOK 恒为 1，保留它是为了让两个操作的耗时不可区分
-	_ = hashOK
-	if !verifyOK {
+	/*
+	 * Agent 密钥是 256 位随机令牌，必须用 HashToken（SHA-256）比对，
+	 * 不能用 VerifyPassword（argon2id）。
+	 *
+	 * 两者不是同一种算法：存的时候 HashToken 生成的是 SHA-256+pepper 的
+	 * 十六进制串，拿去喂 argon2.VerifyPassword 永远解析不出来。
+	 *
+	 * 这个错配的后果是**握手永远失败**：节点装得上、进程跑着，
+	 * 但一次数据都传不回来，表现为"节点一直是离线"。
+	 *
+	 * 为什么令牌用 SHA-256 而密码用 argon2id（见 store/hash.go）：
+	 * argon2id 的价值在于让穷举变慢，而 256 位随机令牌不存在穷举可能。
+	 * 反过来说，每 10 秒一次的握手用 argon2 纯属浪费 CPU。
+	 */
+	expected := store.HashToken(secret)
+	// 常量时间比较，避免时序侧信道泄露哈希内容
+	// ConstantTimeCompare 返回 0/1，不是 bool。
+	if subtle.ConstantTimeCompare([]byte(expected), []byte(node.AgentSecretHash)) != 1 {
 		s.log.Warn("握手失败：密钥错误",
 			slog.String("uuid", maskUUID(uuid)),
 			slog.String("ip", clientIP(ctx)))

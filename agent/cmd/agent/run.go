@@ -8,7 +8,10 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/m202471895/probeone/agent/internal/buffer"
+	"github.com/m202471895/probeone/agent/internal/collect"
 	"github.com/m202471895/probeone/agent/internal/config"
+	"github.com/m202471895/probeone/agent/internal/transport"
 )
 
 // run 是 Agent 的主流程。
@@ -46,9 +49,34 @@ func run(configPath string, checkOnly bool) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// P2 将在此启动采集循环
-	<-ctx.Done()
-	log.Info("收到停机信号，Agent 退出")
+	log.Info("准备连接服务端",
+		slog.String("server", cfg.Server.Addr),
+		slog.Duration("采集间隔", cfg.Interval()))
+
+	/*
+	 * 组装运行器：采集 → 缓冲 → 上报。
+	 *
+	 * 这段之前是空的（只有一句 "P2 将在此启动采集循环" 的注释），
+	 * 进程启动后什么也不做——安装能成功、进程能常驻，
+	 * 但服务端永远收不到数据，节点一直是离线。
+	 */
+	client := transport.New(cfg.Server.Addr, transport.Credentials{
+		UUID:   cfg.Auth.UUID,
+		Secret: cfg.Auth.Secret,
+	}, log)
+
+	runner := transport.NewRunner(transport.RunnerConfig{
+		Client:    client,
+		Collector: collect.New(),
+		Buffer:    buffer.New(cfg.Buffer.Enabled, cfg.Buffer.MaxPoints, cfg.Buffer.MaxBytes),
+		Log:       log,
+		Interval:  cfg.Interval(),
+	})
+
+	// Run 内部自己处理重连，直到 ctx 取消才返回。
+	if err := runner.Run(ctx); err != nil {
+		return fmt.Errorf("运行失败: %w", err)
+	}
 	return nil
 }
 
