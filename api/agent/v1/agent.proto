@@ -165,6 +165,12 @@ message ReportHostInfo {
   repeated DiskInfo disks = 12;
   // 硬件指纹：SHA256(cores + mem_total + 排序后磁盘列表 + cpu_model)[:16]
   string hardware_fp = 13;
+  // CPU 核数。指纹公式里含 cores，缺失会让指纹算不出完整值，
+  // 升配检测（PRD 3.1.2）随之失效——之前这两个字段只在 CpuStat 里，
+  // 主机信息通道没有，服务端拿不到。
+  // 字段号续在 13 之后，不能复用旧号：复用会让新旧节点互相错读。
+  int32 cores_physical = 14;
+  int32 cores_logical = 15;
 
   // ---- C 类：运行时环境 ----
   int64 boot_time = 8;

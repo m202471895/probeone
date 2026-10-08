@@ -282,6 +282,15 @@ func (i *Ingestor) IngestHostInfo(ctx context.Context, nodeID int64, h *agentv1.
 	if h.GetMemTotal() > 0 && node.MemTotal == 0 {
 		node.MemTotal = int64(h.GetMemTotal())
 	}
+	// 核数：ReportMetrics 优先（它带 cores_physical），
+	// hostinfo 是兜底——只在指标通道还没上报过时填。
+	if node.CPUCores == 0 && h.GetCoresLogical() > 0 {
+		node.CPUCores = int(h.GetCoresLogical())
+	}
+	if h.GetCoresPhysical() > 0 && node.CPUCoresPhysical == nil {
+		phys := int(h.GetCoresPhysical())
+		node.CPUCoresPhysical = &phys
+	}
 	if len(node.DiskInfo) == 0 && len(h.GetDisks()) > 0 {
 		node.DiskInfo = disksFromHostProto(h.GetDisks())
 	}

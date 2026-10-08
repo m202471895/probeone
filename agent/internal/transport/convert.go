@@ -126,6 +126,8 @@ func HostInfoToProto(h *collect.HostInfo, seq int32) *agentv1.ReportHostInfo {
 		CpuModel:       h.CPUModel,
 		MemTotal:       int64(h.MemTotal),
 		HardwareFp:     h.HardwareFP,
+		CoresPhysical:  int32(h.CPUCoresPhys),
+		CoresLogical:   int32(h.CPUCoresLog),
 		BootTime:       h.BootTime,
 		PublicIp:       h.PublicIP,
 		AgentStartedAt: h.AgentStartedAt,

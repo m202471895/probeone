@@ -20,7 +20,7 @@ type nodeRepo struct {
 const nodeColumns = `id, uid, name, group_id, agent_secret,
 	COALESCE(hostname,''), COALESCE(os_type,''), COALESCE(os_version,''),
 	COALESCE(arch,''), COALESCE(agent_version,''),
-	COALESCE(cpu_model,''), COALESCE(cpu_cores,0), COALESCE(mem_total,0),
+	COALESCE(cpu_model,''), COALESCE(cpu_cores,0), cores_physical, COALESCE(mem_total,0),
 	disk_info, COALESCE(hardware_fp,''), hardware_changed_at,
 	boot_time, COALESCE(public_ip,''), COALESCE(geo_country,''), COALESCE(geo_city,''),
 	last_seen_at, last_report_at, COALESCE(remark,''), is_public, status,
@@ -90,7 +90,7 @@ func scanNode(s scanner) (*model.Node, error) {
 	err := s.Scan(
 		&n.ID, &n.UID, &n.Name, &groupID, &n.AgentSecretHash,
 		&n.Hostname, &n.OSType, &n.OSVersion, &n.Arch, &n.AgentVersion,
-		&n.CPUModel, &n.CPUCores, &n.MemTotal,
+		&n.CPUModel, &n.CPUCores, &n.CPUCoresPhysical, &n.MemTotal,
 		&diskInfo, &n.HardwareFP, &hardwareChangedAt,
 		&bootTime, &n.PublicIP, &n.GeoCountry, &n.GeoCity,
 		&lastSeenAt, &lastReportAt, &n.Remark, &n.IsPublic, &status,
@@ -185,7 +185,7 @@ func (r *nodeRepo) Update(ctx context.Context, n *model.Node) error {
 	q := `UPDATE nodes SET
 		name = ?, group_id = ?,
 		hostname = ?, os_type = ?, os_version = ?, arch = ?, agent_version = ?,
-		cpu_model = ?, cpu_cores = ?, mem_total = ?,
+		cpu_model = ?, cpu_cores = ?, cores_physical = ?, mem_total = ?,
 		disk_info = ?, hardware_fp = ?, hardware_changed_at = ?,
 		boot_time = ?, public_ip = ?, geo_country = ?, geo_city = ?,
 		remark = ?, is_public = ?, updated_at = ?
@@ -194,7 +194,7 @@ func (r *nodeRepo) Update(ctx context.Context, n *model.Node) error {
 		n.Name, n.GroupID,
 		nullIfEmpty(n.Hostname), nullIfEmpty(n.OSType), nullIfEmpty(n.OSVersion),
 		nullIfEmpty(n.Arch), nullIfEmpty(n.AgentVersion),
-		nullIfEmpty(n.CPUModel), n.CPUCores, n.MemTotal,
+		nullIfEmpty(n.CPUModel), n.CPUCores, n.CPUCoresPhysical, n.MemTotal,
 		nullIfEmpty(sqlbase.MarshalJSON(n.DiskInfo)), nullIfEmpty(n.HardwareFP),
 		sqlbase.NullTimePtr(n.HardwareChangedAt),
 		sqlbase.NullTimePtr(n.BootTime), nullIfEmpty(n.PublicIP),

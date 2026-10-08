@@ -23,10 +23,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/m202471895/probeone/agent/internal/buffer"
 	"github.com/m202471895/probeone/agent/internal/collect"
+	"github.com/m202471895/probeone/agent/internal/publicip"
 	"github.com/m202471895/probeone/agent/internal/reconnect"
 	agentv1 "github.com/m202471895/probeone/api/agent/v1"
 )
@@ -43,6 +45,10 @@ type Runner struct {
 	localInterval time.Duration
 	// current 是当前生效的间隔，服务端可下发调整。
 	current time.Duration
+	// publicIP 是探测到的公网 IP，在启动时取一次。
+	publicIP string
+	// ipClient 是探测公网 IP 用的 HTTP 客户端。
+	ipClient *http.Client
 }
 
 // RunnerConfig 是 Runner 的依赖。
@@ -71,6 +77,14 @@ func NewRunner(cfg RunnerConfig) *Runner {
 	}
 }
 
+// truncate 截断字符串，用于日志输出。
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
 // logAdapter 把 slog 适配到 reconnect.Logger 接口。
 type logAdapter struct{ l *slog.Logger }
 
@@ -86,6 +100,42 @@ func (r *Runner) Run(ctx context.Context) error {
 	 */
 	r.coll.Prime()
 	r.log.Info("采集器已预热", slog.Duration("预热时长", r.localInterval))
+
+	/*
+	 * 先取一次硬件信息。
+	 *
+	 * 为什么必须在这里：Collector.Collect() 会读 c.hostInfo 来填
+	 * Metrics.HardwareFP，而 hostInfo 只在 HostInfo() 被调用后才被填充。
+	 * 不先调一次的话 hostInfo 一直是 nil——指标能上报，
+	 * 但硬件指纹永远为空，升配检测跟着失效。
+	 *
+	 * 这个依赖关系很隐蔽：采集器不报错、指标正常，只是指纹空着。
+	 */
+	if hi := r.coll.HostInfo(ctx, AgentVersion); hi != nil {
+		r.log.Info("硬件信息已采集",
+			slog.String("cpu", truncate(hi.CPUModel, 32)),
+			slog.Int("物理核", hi.CPUCoresPhys),
+			slog.Int("逻辑核", hi.CPUCoresLog),
+			slog.String("指纹", hi.HardwareFP))
+	}
+
+	/*
+	 * 探测公网 IP：只取一次，之后复用。
+	 *
+	 * 为什么不每次上报都探：那要多发一次外部请求，
+	 * 而公网 IP 极少变化（弹性公网 IP 重绑才变）。
+	 * 失败也不重试——探测失败不影响监控主功能，
+	 * 公网 IP 只是附加信息。
+	 */
+	if res, err := publicip.Detect(ctx, r.ipClient); err != nil {
+		r.log.Info("公网 IP 探测失败（不影响监控）", slog.String("reason", err.Error()))
+	} else {
+		r.publicIP = res.IP
+		r.log.Info("公网 IP 已获取",
+			slog.String("ip", res.IP),
+			slog.String("via", res.Endpoint),
+			slog.Duration("耗时", res.Elapsed))
+	}
 
 	// 握手一次；失败不致命——重连循环会继续尝试。
 	if err := r.client.Connect(ctx); err != nil {
@@ -254,6 +304,12 @@ func (r *Runner) sendHostInfo(ctx context.Context, stream Stream) error {
 	h := r.coll.HostInfo(ctx, AgentVersion)
 	if h == nil {
 		return nil
+	}
+	// 填入启动时探测到的公网 IP。
+	// 探测失败时保持为空——上报内网地址会让服务端的地理解析
+	// 拿到无意义的结果。
+	if r.publicIP != "" {
+		h.PublicIP = r.publicIP
 	}
 	msg := &agentv1.AgentMessage{
 		SessionId: r.client.SessionID(),

@@ -108,6 +108,9 @@ type Node struct {
 	// B 类·硬件规格
 	CPUModel          string
 	CPUCores          int
+	// CPUCoresPhysical 是物理核数。指针类型：nil 表示"未上报"，
+	// 与 0（真的没有物理核）语义不同——升配检测不该把未知当 0 参与比较。
+	CPUCoresPhysical *int
 	MemTotal          int64
 	DiskInfo          []DiskInfo // 内部结构含 device，公开时必须剔除
 	HardwareFP        string
